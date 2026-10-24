@@ -1,0 +1,42 @@
+# /etc/systemd/system/zitadel.service — Zitadel API, console and OIDC.
+# Binary from scripts/install.sh (PREFIX=/opt/zitadel), config in
+# /etc/zitadel from deploy/zitadel/ (docs/idlogin.md, "Deploy").
+[Unit]
+Description=Zitadel identity server (127.0.0.1:8090)
+Documentation=https://zitadel.com/docs/self-hosting/deploy/linux
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+User=zitadel
+Group=zitadel
+EnvironmentFile=/etc/zitadel/zitadel.env
+# Refuse to start while a template value is still in the env file.
+ExecStartPre=+/bin/sh -c '! grep -Eq "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=.*REPLACE_ME" /etc/zitadel/zitadel.env'
+# Applies pending migrations, then serves. Safe on every start.
+ExecStart=/opt/zitadel/zitadel/zitadel start-from-setup \
+  --config /etc/zitadel/zitadel.yaml --config /etc/zitadel/production.yaml \
+  --steps /etc/zitadel/steps.yaml \
+  --masterkeyFromEnv --tlsMode external
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=zitadel
+LimitNOFILE=65536
+MemoryMax=1G
+CPUQuota=200%
+
+StateDirectory=zitadel
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

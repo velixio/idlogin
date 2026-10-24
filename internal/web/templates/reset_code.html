@@ -1,0 +1,24 @@
+{{define "content"}}
+<form method="post" action="/reset/code" class="stack">
+{{template "hidden" .}}
+<input class="visually-hidden" type="email" name="username" value="{{.Email}}" autocomplete="username" tabindex="-1" aria-hidden="true" readonly>
+{{if not .ResetOK}}<div class="field">
+<label class="label" for="code">6-digit code</label>
+<input class="input code-input" id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" autofocus>
+</div>{{end}}
+<div class="field">
+<label class="label" for="password">New password</label>
+<div class="password-wrap"><input class="input" id="password" name="password" type="password" autocomplete="new-password" aria-describedby="password-hint"{{if .ResetOK}} autofocus{{end}}><button class="reveal" type="button" data-reveal="password" hidden aria-controls="password" aria-pressed="false">Show</button></div>
+{{with .PasswordHint}}<span class="field-hint" id="password-hint">{{.}}</span>{{end}}
+</div>
+<div class="field">
+<label class="label" for="password_confirm">Confirm password</label>
+<div class="password-wrap"><input class="input" id="password_confirm" name="password_confirm" type="password" autocomplete="new-password"><button class="reveal" type="button" data-reveal="password_confirm" hidden aria-controls="password_confirm" aria-pressed="false">Show</button></div>
+</div>
+<div class="button-row">
+<button class="button button-primary" type="submit" name="action" value="update">Update password</button>
+{{if not .ResetOK}}<button class="button button-ghost" type="submit" name="action" value="resend" formnovalidate>Send a new code</button>{{end}}
+</div>
+</form>
+{{end}}
+{{define "footer"}}<footer class="auth-footer"><form method="post" action="/login/restart" class="inline-form">{{template "hidden" .}}<input type="hidden" name="to" value="reset"><button type="submit" class="link-button">Use a different email</button></form></footer>{{end}}

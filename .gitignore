@@ -1,0 +1,10 @@
+# Local state and notes (never committed)
+/.run/
+/knowledge/
+/bin/
+
+# Secrets
+*.pat
+*.key
+*.env
+!deploy/env/*.env.example

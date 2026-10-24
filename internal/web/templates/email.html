@@ -1,0 +1,15 @@
+{{define "content"}}
+<form method="post" action="/login/email" class="stack" novalidate>
+{{template "hidden" .}}
+<div class="field">
+<label class="label" for="email">Email</label>
+<input class="input" id="email" name="email" type="email" value="{{.Email}}" autocomplete="email" autocapitalize="none" spellcheck="false" autofocus required{{if .Error}} aria-invalid="true" aria-describedby="form-error"{{end}}>
+</div>
+<label class="check-row"><input id="remember" name="remember" type="checkbox" value="on"{{if .Remember}} checked{{end}}>Keep me signed in for 30 days</label>
+<button class="button button-primary" type="submit">Continue</button>
+</form>
+{{if .IDPs}}<div class="separator">Or continue with</div>
+<div class="button-row">{{range .IDPs}}
+<form method="post" action="/login/idp">{{template "hidden" $}}<button class="button button-ghost" id="social-{{.Key}}" type="submit" name="provider" value="{{.Key}}">{{icon .Key}}<span>{{.Label}}</span></button></form>{{end}}
+</div>{{end}}
+{{end}}

@@ -1,0 +1,28 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · {{.Brand.Name}}</title>
+<link rel="icon" href="{{.LogoURL}}">
+<link rel="stylesheet" href="/login/static/app.css">
+<script src="/login/static/app.js" defer></script>
+</head>
+<body>
+<main class="auth-shell"><div class="auth-column">
+<div class="brand"><img src="{{.LogoURL}}" alt="" width="38" height="38"><span class="wordmark">{{.Brand.Name}}</span></div>
+<div class="auth-card"><div class="auth-main">
+<h1 class="auth-title">{{.Title}}</h1>
+{{with .Description}}<p class="auth-description">{{.}}</p>{{end}}
+{{with .Error}}<div class="alert alert-error" role="alert" id="form-error">{{.}}</div>{{end}}
+{{with .Info}}<div class="alert alert-info" role="status">{{.}}</div>{{end}}
+{{template "content" .}}
+</div>{{template "footer" .}}</div>
+{{with .Brand.Tagline}}<p class="tagline">{{.}}</p>{{end}}
+</div></main>
+</body>
+</html>{{end}}
+{{define "footer"}}{{end}}
+{{define "hidden"}}<input type="hidden" name="csrf" value="{{.CSRF}}">{{with .AuthRequest}}<input type="hidden" name="authRequest" value="{{.}}">{{end}}{{end}}
+{{define "restart"}}<footer class="auth-footer"><form method="post" action="/login/restart" class="inline-form">{{template "hidden" .}}{{if .Standalone}}<input type="hidden" name="to" value="reset">{{end}}<button type="submit" class="link-button">Use a different email</button></form></footer>{{end}}

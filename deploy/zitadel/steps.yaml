@@ -1,0 +1,34 @@
+# First-instance setup, applied once by `zitadel init`/`setup`. This creates
+# the first instance and its organization; further instances (own domain, own
+# users) can be added through the System API afterwards. Rename "Example".
+#
+# The admin password comes from ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD.
+# Token files are written to ZITADEL_FIRSTINSTANCE_*PATH, set in env/*.env.
+
+FirstInstance:
+  InstanceName: Example
+  DefaultLanguage: en
+  Org:
+    Name: Example
+    Human:
+      UserName: admin
+      FirstName: Instance
+      LastName: Admin
+      Email:
+        Address: admin@id.localhost
+        Verified: true
+      PasswordChangeRequired: false
+    # Service account idlogin uses to call the Zitadel API (IAM_LOGIN_CLIENT).
+    LoginClient:
+      Machine:
+        Username: login-client
+        Name: idlogin
+      Pat:
+        ExpirationDate: "2029-01-01T00:00:00Z"
+    # Service account for automation (creating apps, instances) from scripts.
+    Machine:
+      Machine:
+        Username: provisioner
+        Name: Provisioner
+      Pat:
+        ExpirationDate: "2029-01-01T00:00:00Z"

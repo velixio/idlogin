@@ -1,0 +1,11 @@
+{{define "content"}}
+<form method="post" action="/reset" class="stack" novalidate>
+{{template "hidden" .}}
+<div class="field">
+<label class="label" for="email">Email</label>
+<input class="input" id="email" name="email" type="email" value="{{.Email}}" autocomplete="email" autocapitalize="none" spellcheck="false" autofocus required{{if .Error}} aria-invalid="true" aria-describedby="form-error"{{end}}>
+</div>
+<button class="button button-primary" type="submit">Send code</button>
+</form>
+{{end}}
+{{define "footer"}}{{if not .Standalone}}<footer class="auth-footer"><form method="post" action="/login/restart" class="inline-form">{{template "hidden" .}}<button type="submit" class="link-button">Back to sign in</button></form></footer>{{else if .Link}}<footer class="auth-footer"><a href="{{.Link}}">Back to {{.Brand.Name}}</a></footer>{{end}}{{end}}

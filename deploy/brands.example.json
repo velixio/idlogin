@@ -1,0 +1,28 @@
+{
+  "brands": [
+    {
+      "id": "example",
+      "name": "Example",
+      "hosts": ["id.example.com"],
+      "public_origin": "https://id.example.com",
+      "zitadel_host": "id.example.com",
+      "logo_file": "logo.svg",
+      "tagline": "Example keeps your account private.",
+      "mail_from": "Example <no-reply@example.com>",
+      "mail_subjects": {
+        "signin": "Your {name} sign-in code",
+        "signup": "Your {name} code",
+        "reset": "Reset your {name} password",
+        "verify": "Confirm your email for {name}"
+      },
+      "login_client_pat_file": "${CREDENTIALS_DIRECTORY}/login-client.pat",
+      "return_urls": ["https://app.example.com/", "https://example.com/account"],
+      "registration_enabled": true,
+      "org_id": "",
+      "idps": [
+        {"key": "google", "id": ""},
+        {"key": "github", "id": ""}
+      ]
+    }
+  ]
+}

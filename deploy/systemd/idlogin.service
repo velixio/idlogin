@@ -1,0 +1,62 @@
+# /etc/systemd/system/idlogin.service — sign-in service (cmd/idlogin).
+# Build: CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/idlogin ./cmd/idlogin
+# Config: /etc/idlogin/idlogin.env (deploy/env/idlogin.production.env.example)
+# and /etc/idlogin/brands.json (deploy/brands.example.json), plus any
+# logo_file it names (e.g. /etc/idlogin/logo.svg; readable by the service).
+# Operations: docs/idlogin.md.
+# Secrets reach the service as systemd credentials, so the dynamic service
+# user never needs read access to Zitadel's state directory:
+#   login-client.pat  Zitadel's IAM_LOGIN_CLIENT token (written by zitadel setup)
+#   actions.key       action target signing key (written by `idlogin setup`)
+# brands.json refers to "${CREDENTIALS_DIRECTORY}/login-client.pat".
+[Unit]
+Description=Sign-in service for Zitadel (idlogin, 127.0.0.1:8091)
+Documentation=https://github.com/velixio/idlogin/blob/main/docs/idlogin.md
+After=network-online.target postgresql.service zitadel.service
+Wants=network-online.target zitadel.service
+
+[Service]
+DynamicUser=yes
+EnvironmentFile=/etc/idlogin/idlogin.env
+Environment=LOGIN_ACTIONS_SIGNING_KEY_FILE=%d/actions.key
+LoadCredential=login-client.pat:/var/lib/zitadel/login-client.pat
+LoadCredential=actions.key:/etc/idlogin/actions.key
+ExecStartPre=+/bin/sh -c '! grep -Eq "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=.*REPLACE_ME" /etc/idlogin/idlogin.env'
+ExecStart=/usr/local/bin/idlogin
+# SIGHUP reloads brands.json and logos (not the credentials: restart after rotating them).
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=idlogin
+MemoryMax=256M
+CPUQuota=100%
+LimitNOFILE=16384
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

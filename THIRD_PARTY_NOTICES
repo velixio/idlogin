@@ -1,0 +1,25 @@
+Third-party notices
+===================
+
+idlogin is licensed under the Apache License 2.0 (see LICENSE). It embeds the
+following third-party works in its binary:
+
+Geist (variable, latin subset)
+  File:      internal/web/static/fonts/geist-latin-wght-normal.woff2
+  Copyright: 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
+  License:   SIL Open Font License, Version 1.1
+             internal/web/static/fonts/OFL-Geist.txt
+
+Fraunces (variable, latin subset)
+  File:      internal/web/static/fonts/fraunces-latin-wght-normal.woff2
+  Copyright: 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
+  License:   SIL Open Font License, Version 1.1
+             internal/web/static/fonts/OFL-Fraunces.txt
+
+Go module dependencies (github.com/jackc/pgx/v5, github.com/coreos/go-oidc/v3
+and their dependencies, listed in go.mod) are distributed under their own
+licenses, which are included in each module's source.
+
+The Google and GitHub button icons are drawn inline as simple SVG paths and
+are used only to identify those sign-in providers; the names and marks belong
+to their owners.

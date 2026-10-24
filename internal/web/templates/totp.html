@@ -1,0 +1,11 @@
+{{define "content"}}
+<form method="post" action="/login/totp" class="stack">
+{{template "hidden" .}}
+<div class="field">
+<label class="label" for="otp">Authenticator code</label>
+<input class="input code-input" id="otp" name="otp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" autofocus{{if .Error}} aria-invalid="true" aria-describedby="form-error"{{end}}>
+</div>
+<button class="button button-primary" type="submit">Continue</button>
+</form>
+{{end}}
+{{define "footer"}}{{template "restart" .}}{{end}}

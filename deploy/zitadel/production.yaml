@@ -1,0 +1,20 @@
+# Production overlay, loaded after zitadel.yaml. Replace id.example.com with
+# your instance domain.
+#
+#   zitadel start --config zitadel.yaml --config production.yaml \
+#     --masterkeyFromEnv --tlsMode external
+# nginx terminates TLS on id.example.com and forwards h2c to :8090
+# (deploy/nginx/id.example.com.conf). Zitadel listens on loopback only.
+
+Log:
+  Formatter:
+    Format: json
+
+ExternalDomain: id.example.com
+ExternalPort: 443
+ExternalSecure: true
+
+DefaultInstance:
+  Features:
+    LoginV2:
+      BaseURI: https://id.example.com

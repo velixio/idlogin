@@ -1,0 +1,14 @@
+{{define "content"}}
+<form method="post" action="/login/code" class="stack">
+{{template "hidden" .}}
+<div class="field">
+<label class="label" for="code">6-digit code</label>
+<input class="input code-input" id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" autofocus{{if .Error}} aria-invalid="true" aria-describedby="form-error"{{end}}>
+</div>
+<div class="button-row">
+<button class="button button-primary" type="submit" name="action" value="verify">Continue</button>
+<button class="button button-ghost" type="submit" name="action" value="resend" formnovalidate>Send a new code</button>
+</div>
+</form>
+{{end}}
+{{define "footer"}}{{if ne .CodeKind "verify"}}{{template "restart" .}}{{end}}{{end}}

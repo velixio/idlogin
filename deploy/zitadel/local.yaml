@@ -1,0 +1,17 @@
+# Local-only overlay, loaded after zitadel.yaml by scripts/dev-up.sh. Never
+# use in production.
+#
+# Zitadel refuses outbound calls (back-channel logout, actions) to private and
+# loopback addresses to prevent SSRF. Locally the apps run on localhost, so
+# loopback is allowed here; every other private range stays blocked.
+HTTPClient:
+  DenyList:
+    - "0.0.0.0/8"
+    - "10.0.0.0/8"
+    - "100.64.0.0/10"
+    - "169.254.0.0/16"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "198.18.0.0/15"
+    - "fc00::/7"
+    - "fe80::/10"

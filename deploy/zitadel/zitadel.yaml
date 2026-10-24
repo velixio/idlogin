@@ -1,0 +1,86 @@
+# Zitadel runtime config (merged over the built-in defaults).
+# Secrets never live here: the masterkey comes from ZITADEL_MASTERKEY and the
+# database passwords from ZITADEL_DATABASE_POSTGRES_*_PASSWORD (see env/*.env).
+#
+# Local:      externalDomain localhost:8090, plain HTTP (TLS.Enabled false).
+# Production: your instance domain (e.g. id.example.com) behind nginx, which terminates TLS
+#             (ExternalSecure true, TLS.Enabled false). Override with env vars.
+
+Log:
+  Level: info
+  Formatter:
+    Format: text
+
+Port: 8090
+ExternalDomain: localhost
+ExternalPort: 8090
+ExternalSecure: false
+
+TLS:
+  Enabled: false
+
+Database:
+  Postgres:
+    Host: 127.0.0.1
+    Port: 5432
+    Database: zitadel
+    MaxOpenConns: 15
+    MaxIdleConns: 5
+    User:
+      Username: zitadel
+      SSL:
+        Mode: disable
+    Admin:
+      # Same role as User: the role and database are created beforehand by
+      # deploy/postgres/create-db.sh, so init never needs a superuser.
+      Username: zitadel
+      SSL:
+        Mode: disable
+
+# Sign-in is idlogin (cmd/idlogin), not Zitadel's bundled Login UI.
+# Zitadel sends browsers to <LoginV2.BaseURI origin> + these paths.
+OIDC:
+  DefaultLoginURLV2: "/login?authRequest="
+  DefaultLogoutURLV2: "/logout?post_logout_redirect="
+SAML:
+  DefaultLoginURLV2: "/login?samlRequest="
+
+DefaultInstance:
+  Features:
+    LoginV2:
+      Required: true
+      # Origin of idlogin (cmd/idlogin). Locally it runs on :8091; in production nginx
+      # serves it on the instance hostname (deploy/nginx).
+      BaseURI: http://localhost:8091
+  # Token lifetimes. DefaultInstance only applies to new instances; scripts/dev-up.sh
+  # (`idlogin setup`) applies the same values to existing ones. All four are required.
+  OIDCSettings:
+    AccessTokenLifetime: 5m
+    IdTokenLifetime: 1h
+    RefreshTokenIdleExpiration: 720h
+    RefreshTokenExpiration: 2160h
+
+# Outbound calls (back-channel logout, action targets) must not reach the
+# host or private networks (SSRF). This is Zitadel's default list plus IPv6
+# loopback, private, link-local and IPv4-mapped ranges, with NO exceptions:
+# the list has no per-port rules, so allowing any one address would expose
+# every service listening on 0.0.0.0 or [::]. idlogin's action target is
+# reached through the public hostname instead (docs/idlogin.md, "Access-token
+# claims").
+# Only the local dev overlay (local.yaml) allows loopback.
+HTTPClient:
+  DenyList:
+    - localhost
+    - "0.0.0.0/8"
+    - "10.0.0.0/8"
+    - "100.64.0.0/10"
+    - "127.0.0.0/8"
+    - "169.254.0.0/16"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "198.18.0.0/15"
+    - "::/128"
+    - "::1/128"
+    - "::ffff:0:0/96"
+    - "fc00::/7"
+    - "fe80::/10"
