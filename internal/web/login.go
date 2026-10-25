@@ -55,6 +55,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	interactive := !req.HasPrompt(zitadel.PromptLogin) && !req.HasPrompt(zitadel.PromptSelectAccount) && !f.Signup
+	if interactive && f.Native && !req.HasPrompt(zitadel.PromptNone) {
+		// A native app never takes the browser's session silently: its
+		// redirect can be claimed by any program on the device. A sign-in
+		// within NativeApprovalWindow can be handed over with one click.
+		if e, ok := s.findSession(w, r, b, req); ok {
+			if email, ok := s.approvable(ctx, b, e); ok {
+				f.Step, f.SessionID, f.SessionTok, f.UserID, f.Email, f.Remember = stepApprove, e.ID, e.Token, e.UserID, email, e.Remember
+				s.saveFlow(w, b, f)
+				s.toStep(w, r, f)
+				return
+			}
+		}
+	}
 	if req.HasPrompt(zitadel.PromptNone) || (interactive && !f.Native) {
 		if !f.Native {
 			if e, ok := s.findSession(w, r, b, req); ok {

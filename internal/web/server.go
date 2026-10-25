@@ -43,6 +43,10 @@ const (
 
 	SessionLifetime         = 7 * 24 * time.Hour
 	SessionLifetimeRemember = 30 * 24 * time.Hour
+	// NativeApprovalWindow is how recent a browser sign-in must be for a
+	// native app to take it over with one approval click instead of a fresh
+	// sign-in.
+	NativeApprovalWindow = 24 * time.Hour
 
 	flowTTL        = 30 * time.Minute
 	maxSessions    = 5
@@ -158,6 +162,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /login/totp", s.handleTOTPPage)
 	m.HandleFunc("POST /login/totp", s.handleTOTP)
 	m.HandleFunc("POST /login/restart", s.handleRestart)
+	m.HandleFunc("GET /login/approve", s.handleApprovePage)
+	m.HandleFunc("POST /login/approve", s.handleApprove)
 	m.HandleFunc("POST /login/idp", s.handleIDPStart)
 	m.HandleFunc("GET /login/idp/callback", s.handleIDPCallback)
 	m.HandleFunc("GET /login/idp/failure", s.handleIDPFailure)

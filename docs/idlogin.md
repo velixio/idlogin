@@ -174,9 +174,15 @@ without SMTP.
   remembered session) so products can match their own session length.
 - **SSO.** A sealed `idl-sessions` cookie keeps up to 5 of this browser's
   Zitadel sessions. `prompt=select_account` is treated like `prompt=login`
-  (there is no account picker). Requests from **native** OIDC apps never reuse
-  the browser's sessions and their new session is not added to the cookie, so
-  a web logout does not end desktop tokens.
+  (there is no account picker). Requests from **native** OIDC apps never take
+  the browser's sessions silently: a native app's redirect can be claimed by
+  any program on the device. When the browser holds a session whose last
+  sign-in is within 24 hours (`NativeApprovalWindow`), `/login/approve` shows
+  "Approve sign-in" for it; approving finalises the request with that session
+  (checked again on submit), so a web logout then ends it for the app too.
+  Older sessions, "Use a different account", `prompt=login` and
+  `prompt=none` get a fresh sign-in, and that new session is not added to the
+  cookie, so a web logout does not end it.
 - **Logout.** With `id_token_hint`, Zitadel ends that session itself and never
   shows `/logout`. Without it, Zitadel sends the browser to
   `/logout?post_logout_redirect=…&logout_token=<JWT>`; a logout token signed
@@ -211,6 +217,7 @@ own routes):
 | `GET,POST /login/password` | Password step (or "Email me a code instead") |
 | `GET,POST /login/code` | Email code (sign-in, sign-up, email verification), resend |
 | `GET,POST /login/totp` | Authenticator code |
+| `GET,POST /login/approve` | Native app: approve a browser sign-in from the last 24 hours |
 | `POST /login/restart` | "Use a different email" |
 | `POST /login/idp`, `GET /login/idp/callback`, `GET /login/idp/failure` | IdP intents |
 | `GET,POST /reset`, `GET,POST /reset/code` | Password reset (in an auth request, or `/reset?return=<allowlisted URL>`) |

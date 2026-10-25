@@ -387,9 +387,12 @@ func TestNativeAppGetsFreshSession(t *testing.T) {
 	signInWithPassword(t, e, b, "pw@example.com", "Secret-123", false)
 	webSessions := len(e.web.browserSessionsForTest(t, b))
 
-	// The desktop app does not reuse the browser session...
+	// Choosing another account instead of approving gives the desktop app its
+	// own session...
 	ar := e.z.newAuthRequest("desktop", nil, nil, "")
 	p := b.start(ar)
+	mustContain(t, p, `action="/login/approve"`)
+	p = b.post(p, "/login/restart", nil)
 	mustContain(t, p, `action="/login/email"`)
 	p = b.post(p, "/login/email", url.Values{"email": {"pw@example.com"}})
 	p = b.post(p, "/login/password", url.Values{"password": {"Secret-123"}, "action": {"password"}})
@@ -404,6 +407,64 @@ func TestNativeAppGetsFreshSession(t *testing.T) {
 	if p := b.start(ar); !strings.Contains(p.location, "error=login_required") {
 		t.Fatalf("native prompt=none: %q", p.location)
 	}
+}
+
+func TestNativeAppApprovesRecentBrowserSession(t *testing.T) {
+	e := newEnv(t, brandCfg{})
+	e.z.addUser("pw@example.com", "Secret-123", true)
+	e.z.native["desktop"] = true
+	b := e.browser()
+	signInWithPassword(t, e, b, "pw@example.com", "Secret-123", false)
+	webSessions := len(e.web.browserSessionsForTest(t, b))
+
+	// Signed in on the web within the window: one click, no code.
+	e.clock.add(23 * time.Hour)
+	ar := e.z.newAuthRequest("desktop", nil, nil, "")
+	p := b.start(ar)
+	mustContain(t, p, "Approve sign-in", "pw@example.com", `action="/login/approve"`)
+	sent := e.mail.count()
+	mustCallback(t, b.post(p, "/login/approve", nil), ar)
+	if e.mail.count() != sent {
+		t.Fatal("approving sent an email")
+	}
+	if n := len(e.web.browserSessionsForTest(t, b)); n != webSessions {
+		t.Fatalf("browser sessions %d -> %d", webSessions, n)
+	}
+
+	// The approval is a form post: no CSRF token, no sign-in.
+	ar = e.z.newAuthRequest("desktop", nil, nil, "")
+	p = b.start(ar)
+	if p = b.post(p, "/login/approve", url.Values{"csrf": {"forged"}}); p.status != http.StatusForbidden {
+		t.Fatalf("approve with a forged token: %d %q", p.status, p.location)
+	}
+
+	// prompt=login still asks for a fresh sign-in.
+	ar = e.z.newAuthRequest("desktop", []string{zitadel.PromptLogin}, nil, "")
+	mustContain(t, b.start(ar), `action="/login/email"`)
+}
+
+func TestNativeAppApprovalNeedsSignInWithin24Hours(t *testing.T) {
+	e := newEnv(t, brandCfg{})
+	e.z.addUser("pw@example.com", "Secret-123", true)
+	e.z.native["desktop"] = true
+	b := e.browser()
+	signInWithPassword(t, e, b, "pw@example.com", "Secret-123", false)
+
+	// An approval page opened inside the window cannot be used after it.
+	e.clock.add(23*time.Hour + 59*time.Minute)
+	ar := e.z.newAuthRequest("desktop", nil, nil, "")
+	p := b.start(ar)
+	mustContain(t, p, `action="/login/approve"`)
+	e.clock.add(2 * time.Minute)
+	mustContain(t, b.post(p, "/login/approve", nil), `action="/login/email"`)
+
+	// Opened after the window: straight to a fresh sign-in.
+	ar = e.z.newAuthRequest("desktop", nil, nil, "")
+	mustContain(t, b.start(ar), `action="/login/email"`)
+
+	// The web app still reuses the session (it is valid for 7 days).
+	web := e.z.newAuthRequest("web", nil, nil, "")
+	mustCallback(t, b.start(web), web)
 }
 
 func TestResetPasswordInAuthRequest(t *testing.T) {

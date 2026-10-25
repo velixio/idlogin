@@ -1,0 +1,8 @@
+{{define "content"}}
+<form method="post" action="/login/approve" class="stack">
+{{template "hidden" .}}
+<button class="button button-primary" type="submit" autofocus>Approve</button>
+<p class="field-hint">Approve only if you just started this sign-in from the app yourself.</p>
+</form>
+{{end}}
+{{define "footer"}}<footer class="auth-footer"><form method="post" action="/login/restart" class="inline-form">{{template "hidden" .}}<button type="submit" class="link-button">Use a different account</button></form></footer>{{end}}

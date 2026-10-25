@@ -20,6 +20,7 @@ const (
 	stepTOTP      = "totp"
 	stepReset     = "reset"
 	stepResetCode = "reset_code"
+	stepApprove   = "approve" // native app: one click on a recent browser session
 )
 
 // Code purposes.
@@ -39,7 +40,7 @@ type flow struct {
 	CSRF        string `json:"csrf"`
 	Step        string `json:"st"`
 	Signup      bool   `json:"su,omitempty"` // prompt=create
-	Native      bool   `json:"na,omitempty"` // native app: fresh session, not shared with the browser
+	Native      bool   `json:"na,omitempty"` // native app: fresh session unless it approves a recent browser session
 	Remember    bool   `json:"rm,omitempty"`
 	Email       string `json:"em,omitempty"`
 	UserID      string `json:"uid,omitempty"`
@@ -181,6 +182,8 @@ func stepPath(step string) string {
 		return "/reset"
 	case stepResetCode:
 		return "/reset/code"
+	case stepApprove:
+		return "/login/approve"
 	}
 	return "/login/email"
 }
