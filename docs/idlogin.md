@@ -100,8 +100,17 @@ binary and applied at start.
   - `prompt=login` forces re-authentication (step-up).
   - `prompt=none` returns `login_required` instead of showing a page.
   - `prompt=create` opens in sign-up mode.
+  - `prompt=consent` always shows an **Allow / Deny** page before the app
+    receives an authorization code, after either SSO reuse or a fresh sign-in
+    (including sign-up, password reset, MFA and IdP flows). It names the
+    registered application and account, and lists requested access. Allow
+    rechecks the live session, verified factors and `max_age`; Deny returns
+    `access_denied` without a code. Consent is per request, not remembered.
+    `prompt=none consent` returns `interaction_required` without signing in.
 - **Logout.** End-session lands on `/logout`. It terminates this browser's
   Zitadel sessions, then continues to the post-logout redirect.
+
+![App consent screen](consent.png)
 
 ## Security model
 
@@ -180,6 +189,10 @@ without SMTP.
   sign-in is within 24 hours (`NativeApprovalWindow`), `/login/approve` shows
   "Approve sign-in" for it; approving finalises the request with that session
   (checked again on submit), so a web logout then ends it for the app too.
+  When `prompt=consent` is requested, this is the app permission page with
+  Allow / Deny instead of the native approval page. A product can require a
+  fresh sign-in after 24 hours by sending `max_age=86400`; both SSO selection
+  and the eventual Allow click check the factor authentication time.
   Older sessions, "Use a different account", `prompt=login` and
   `prompt=none` get a fresh sign-in, and that new session is not added to the
   cookie, so a web logout does not end it.
@@ -212,6 +225,7 @@ own routes):
 
 | Path | |
 |---|---|
+| `GET,POST /login/consent` | Per-request app permission: Allow or Deny, bound to the flow and current verified session |
 | `GET /login?authRequest=V2_…` | Entry from Zitadel: prompt/max_age, SSO reuse, else the email page |
 | `GET,POST /login/email` | Email-first step (remember-me, IdP buttons) |
 | `GET,POST /login/password` | Password step (or "Email me a code instead") |

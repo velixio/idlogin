@@ -13,6 +13,7 @@ import (
 
 // view is the data every page template gets.
 type view struct {
+	Permissions  []string
 	Brand        *config.Brand
 	LogoURL      string
 	Title        string
