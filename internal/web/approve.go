@@ -67,6 +67,24 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		s.toStep(w, r, n)
 		return
 	}
+	// Flows sealed by an older version may still be at the native approval
+	// step. The provider's current prompt, not that old cookie, controls consent.
+	req, err := s.api.GetAuthRequest(r.Context(), instance(b), f.AuthRequest)
+	if err != nil {
+		s.failure(w, r, err, "get auth request")
+		return
+	}
+	if req.HasPrompt(zitadel.PromptConsent) {
+		app, err := s.api.GetApplication(r.Context(), instance(b), req.ClientID)
+		if err != nil {
+			s.failure(w, r, err, "get consent application")
+			return
+		}
+		f.Step, f.Consent, f.ClientID, f.AppName = stepConsent, true, req.ClientID, app.Name
+		s.saveFlow(w, b, f)
+		s.toStep(w, r, f)
+		return
+	}
 	cb, err := s.api.FinalizeAuthRequest(r.Context(), instance(b), f.AuthRequest, f.SessionID, f.SessionTok)
 	if err != nil || !safeCallback(cb) {
 		if err != nil && zitadel.IsRejected(err) {

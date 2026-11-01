@@ -1,0 +1,10 @@
+{{define "content"}}
+<form method="post" action="/login/consent" class="stack">
+{{template "hidden" .}}
+{{if .Permissions}}<ul>{{range .Permissions}}<li>{{.}}</li>{{end}}</ul>{{end}}
+<p class="field-hint">Allow only if you started this sign-in from the app. Denying will not sign you out of your account.</p>
+<button class="button button-primary" type="submit" name="action" value="allow">Allow</button>
+<button class="button" type="submit" name="action" value="deny">Deny</button>
+</form>
+{{end}}
+{{define "footer"}}<footer class="auth-footer"><form method="post" action="/login/restart" class="inline-form">{{template "hidden" .}}<button type="submit" class="link-button">Use a different account</button></form></footer>{{end}}

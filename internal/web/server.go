@@ -162,6 +162,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /login/totp", s.handleTOTPPage)
 	m.HandleFunc("POST /login/totp", s.handleTOTP)
 	m.HandleFunc("POST /login/restart", s.handleRestart)
+	m.HandleFunc("GET /login/consent", s.handleConsentPage)
+	m.HandleFunc("POST /login/consent", s.handleConsent)
 	m.HandleFunc("GET /login/approve", s.handleApprovePage)
 	m.HandleFunc("POST /login/approve", s.handleApprove)
 	m.HandleFunc("POST /login/idp", s.handleIDPStart)

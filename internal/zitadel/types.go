@@ -23,6 +23,12 @@ const (
 	PromptCreate        = "PROMPT_CREATE"
 )
 
+// Application identifies the registered OIDC client shown on the consent page.
+type Application struct {
+	Name   string
+	Native bool
+}
+
 // AuthRequest is an OIDC authorization request waiting for the login UI.
 type AuthRequest struct {
 	ID          string    `json:"id"`

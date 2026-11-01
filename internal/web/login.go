@@ -43,11 +43,29 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := newFlow(ar)
-	if f.Native, err = s.api.AppIsNative(ctx, instance(b), req.ClientID); err != nil {
+	app, err := s.api.GetApplication(ctx, instance(b), req.ClientID)
+	f.Consent, f.ClientID = req.HasPrompt(zitadel.PromptConsent), req.ClientID
+	if err != nil {
+		if f.Consent {
+			s.failure(w, r, err, "get consent application")
+			return
+		}
 		// Fail towards a fresh session: never hand the browser's SSO session
 		// to an app we could not classify.
 		s.log.Warn("app type lookup failed; treating as native", "client", req.ClientID, "error", err)
 		f.Native = true
+	}
+	if app != nil {
+		f.Native, f.AppName = app.Native, app.Name
+	}
+	if f.Consent && req.HasPrompt(zitadel.PromptNone) {
+		cb, err := s.api.FailAuthRequest(ctx, instance(b), ar, zitadel.ErrorInteractionRequired, "consent requires interaction")
+		if err != nil || !safeCallback(cb) {
+			s.failure(w, r, err, "fail auth request")
+			return
+		}
+		http.Redirect(w, r, cb, http.StatusSeeOther)
+		return
 	}
 	f.Signup = req.HasPrompt(zitadel.PromptCreate)
 	if hint := strings.TrimSpace(req.LoginHint); strings.Contains(hint, "@") {
@@ -62,6 +80,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if e, ok := s.findSession(w, r, b, req); ok {
 			if email, ok := s.approvable(ctx, b, e); ok {
 				f.Step, f.SessionID, f.SessionTok, f.UserID, f.Email, f.Remember = stepApprove, e.ID, e.Token, e.UserID, email, e.Remember
+				if f.Consent {
+					f.Step = stepConsent
+				}
 				s.saveFlow(w, b, f)
 				s.toStep(w, r, f)
 				return
@@ -71,6 +92,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if req.HasPrompt(zitadel.PromptNone) || (interactive && !f.Native) {
 		if !f.Native {
 			if e, ok := s.findSession(w, r, b, req); ok {
+				if f.Consent && !req.HasPrompt(zitadel.PromptNone) {
+					user, err := s.api.GetUser(ctx, instance(b), e.UserID)
+					if err != nil {
+						s.failure(w, r, err, "get consent user")
+						return
+					}
+					f.Step, f.SessionID, f.SessionTok, f.UserID, f.Email, f.Remember = stepConsent, e.ID, e.Token, e.UserID, user.Email(), e.Remember
+					s.saveFlow(w, b, f)
+					s.toStep(w, r, f)
+					return
+				}
 				if cb, err := s.api.FinalizeAuthRequest(ctx, instance(b), ar, e.ID, e.Token); err == nil && safeCallback(cb) {
 					if e.Remember {
 						cb = withRememberMe(cb)
@@ -678,6 +710,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	n := newFlow(f.AuthRequest)
 	n.CSRF, n.Remember, n.Native, n.Return = f.CSRF, f.Remember, f.Native, f.Return
+	n.Consent, n.ClientID, n.AppName = f.Consent, f.ClientID, f.AppName
 	if r.PostFormValue("to") == stepReset || f.AuthRequest == "" {
 		n.Step = stepReset
 	}
@@ -748,7 +781,32 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, f *flow, res *
 		s.message(w, r, http.StatusOK, "Password changed", "Your new password is set. You can close this page.", "", "")
 		return
 	}
-	cb, err := s.api.FinalizeAuthRequest(ctx, in, f.AuthRequest, f.SessionID, f.SessionTok)
+	req, err := s.api.GetAuthRequest(ctx, in, f.AuthRequest)
+	if err != nil {
+		s.failure(w, r, err, "get auth request")
+		return
+	}
+	if req.HasPrompt(zitadel.PromptConsent) {
+		if f.ClientID != req.ClientID || f.AppName == "" {
+			app, err := s.api.GetApplication(ctx, in, req.ClientID)
+			if err != nil {
+				s.failure(w, r, err, "get consent application")
+				return
+			}
+			f.ClientID, f.AppName, f.Native = req.ClientID, app.Name, app.Native
+		}
+		f.Consent, f.Step = true, stepConsent
+		s.saveFlow(w, b, f)
+		s.toStep(w, r, f)
+		return
+	}
+	s.finishAuthRequest(w, r, f)
+}
+
+func (s *Server) finishAuthRequest(w http.ResponseWriter, r *http.Request, f *flow) {
+	b := brandOf(r)
+	entry := browserSession{ID: f.SessionID, Token: f.SessionTok, UserID: f.UserID, Remember: f.Remember}
+	cb, err := s.api.FinalizeAuthRequest(r.Context(), instance(b), f.AuthRequest, f.SessionID, f.SessionTok)
 	if err != nil || !safeCallback(cb) {
 		if err != nil && zitadel.IsRejected(err) {
 			s.dropFlow(w, b, f)

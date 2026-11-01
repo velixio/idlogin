@@ -24,7 +24,7 @@ type API interface {
 	GetAuthRequest(ctx context.Context, in Instance, id string) (*AuthRequest, error)
 	FinalizeAuthRequest(ctx context.Context, in Instance, id, sessionID, sessionToken string) (string, error)
 	FailAuthRequest(ctx context.Context, in Instance, id, reason, description string) (string, error)
-	AppIsNative(ctx context.Context, in Instance, clientID string) (bool, error)
+	GetApplication(ctx context.Context, in Instance, clientID string) (*Application, error)
 
 	FindUsers(ctx context.Context, in Instance, email string) ([]User, error)
 	GetUser(ctx context.Context, in Instance, userID string) (*User, error)
@@ -201,12 +201,12 @@ func (c *Client) FailAuthRequest(ctx context.Context, in Instance, id, reason, d
 	return out.CallbackURL, err
 }
 
-// AppIsNative reports whether the OIDC app with this client ID is a native
-// (desktop/mobile) app. Uses the connect endpoint of the v2 application
+// GetApplication returns the registered client name and whether it is native. Uses the connect endpoint of the v2 application
 // service, which has no REST mapping in v4.19.5.
-func (c *Client) AppIsNative(ctx context.Context, in Instance, clientID string) (bool, error) {
+func (c *Client) GetApplication(ctx context.Context, in Instance, clientID string) (*Application, error) {
 	var out struct {
 		Applications []struct {
+			Name string `json:"name"`
 			OIDC *struct {
 				ApplicationType string `json:"applicationType"`
 				ClientID        string `json:"clientId"`
@@ -217,14 +217,14 @@ func (c *Client) AppIsNative(ctx context.Context, in Instance, clientID string) 
 		"filters": []any{map[string]any{"clientIdFilter": map[string]string{"clientId": clientID}}},
 	}, &out)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	for _, a := range out.Applications {
 		if a.OIDC != nil && a.OIDC.ClientID == clientID {
-			return a.OIDC.ApplicationType == "OIDC_APP_TYPE_NATIVE", nil
+			return &Application{Name: a.Name, Native: a.OIDC.ApplicationType == "OIDC_APP_TYPE_NATIVE"}, nil
 		}
 	}
-	return false, nil
+	return nil, fmt.Errorf("OIDC application not found")
 }
 
 // FindUsers returns the human users whose current email equals the given

@@ -162,10 +162,10 @@ func (f *fakeZitadel) FailAuthRequest(_ context.Context, _ zitadel.Instance, id,
 	return "https://rp.test/cb?error=" + e + "&state=s", nil
 }
 
-func (f *fakeZitadel) AppIsNative(_ context.Context, _ zitadel.Instance, clientID string) (bool, error) {
+func (f *fakeZitadel) GetApplication(_ context.Context, _ zitadel.Instance, clientID string) (*zitadel.Application, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.native[clientID], nil
+	return &zitadel.Application{Name: "Example " + clientID, Native: f.native[clientID]}, nil
 }
 
 func (f *fakeZitadel) FindUsers(_ context.Context, _ zitadel.Instance, email string) ([]zitadel.User, error) {
