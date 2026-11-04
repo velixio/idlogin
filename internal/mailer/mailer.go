@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -32,6 +33,15 @@ type Message struct {
 	Text    string
 	HTML    string
 	Kind    string // code, reset... (used in log file names)
+	Inline  []Inline
+}
+
+// Inline is an image carried inside the message, referenced from HTML as
+// cid:<ContentID>, so mail clients show it without loading anything remote.
+type Inline struct {
+	ContentID   string
+	ContentType string
+	Data        []byte
 }
 
 // Mailer sends messages.
@@ -39,7 +49,8 @@ type Mailer interface {
 	Send(ctx context.Context, m Message) error
 }
 
-// Build renders a multipart/alternative MIME message.
+// Build renders a multipart/alternative MIME message, wrapped in
+// multipart/related when it carries inline images.
 func Build(m Message, now time.Time) ([]byte, error) {
 	from, err := mail.ParseAddress(m.From)
 	if err != nil {
@@ -62,8 +73,15 @@ func Build(m Message, now time.Time) ([]byte, error) {
 	h("Message-ID", "<"+hex.EncodeToString(id[:])+"@"+domain+">")
 	h("MIME-Version", "1.0")
 	h("Auto-Submitted", "auto-generated")
-	h("Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
-	b.WriteString("\r\n")
+	related := "r-" + hex.EncodeToString(id[:])
+	if len(m.Inline) > 0 {
+		h("Content-Type", `multipart/related; boundary="`+related+`"`)
+		b.WriteString("\r\n")
+		fmt.Fprintf(&b, "--%s\r\nContent-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", related, boundary)
+	} else {
+		h("Content-Type", `multipart/alternative; boundary="`+boundary+`"`)
+		b.WriteString("\r\n")
+	}
 	part := func(ctype, body string) {
 		fmt.Fprintf(&b, "--%s\r\nContent-Type: %s; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n", boundary, ctype)
 		w := quotedprintable.NewWriter(&b)
@@ -76,6 +94,18 @@ func Build(m Message, now time.Time) ([]byte, error) {
 		part("text/html", m.HTML)
 	}
 	fmt.Fprintf(&b, "--%s--\r\n", boundary)
+	if len(m.Inline) > 0 {
+		for _, in := range m.Inline {
+			fmt.Fprintf(&b, "\r\n--%s\r\nContent-Type: %s\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <%s>\r\nContent-Disposition: inline\r\n\r\n", related, in.ContentType, in.ContentID)
+			encoded := base64.StdEncoding.EncodeToString(in.Data)
+			for len(encoded) > 76 {
+				b.WriteString(encoded[:76] + "\r\n")
+				encoded = encoded[76:]
+			}
+			b.WriteString(encoded + "\r\n")
+		}
+		fmt.Fprintf(&b, "--%s--\r\n", related)
+	}
 	return b.Bytes(), nil
 }
 

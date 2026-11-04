@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"testing"
+
+	"github.com/velixio/idlogin/internal/config"
 )
 
 var logoHref = regexp.MustCompile(`<img src="(/login/brand/logo\?v=[0-9a-f]{12})"`)
@@ -62,6 +65,41 @@ func TestMailSubjects(t *testing.T) {
 	e.mail.mu.Lock()
 	defer e.mail.mu.Unlock()
 	if len(e.mail.msgs) != 1 || e.mail.msgs[0].Subject != "Welcome to Example: your code" || e.mail.msgs[0].From != "Example <no-reply@example.test>" {
+		t.Fatalf("mail: %+v", e.mail.msgs)
+	}
+}
+
+func TestCodeEmailCarriesTheBrandsLook(t *testing.T) {
+	cfg := &config.Brand{Name: "Example", MailFrom: "Example <no-reply@example.com>", MailAccent: "#F47FA3", MailLogo: []byte("png"), MailLogoType: "image/png",
+		MailFooter: "Example Ltd, 1 Road <Town>", MailLinks: []config.MailLink{{Label: "Privacy", URL: "https://example.com/privacy"}}}
+	m := codeMessage(cfg, kindSignin, "a@example.com", "123456")
+	for _, want := range []string{`cid:logo@idlogin`, "#F47FA3", "123456", `name="viewport"`, "Example Ltd, 1 Road &lt;Town&gt;", `href="https://example.com/privacy"`} {
+		if !strings.Contains(m.HTML, want) {
+			t.Fatalf("HTML lacks %q:\n%s", want, m.HTML)
+		}
+	}
+	if strings.Contains(m.HTML, "ZgotmplZ") {
+		t.Fatalf("a value was rejected by the template:\n%s", m.HTML)
+	}
+	if len(m.Inline) != 1 || m.Inline[0].ContentID != "logo@idlogin" || !strings.Contains(m.Text, "Example Ltd") {
+		t.Fatalf("inline %+v, text %q", m.Inline, m.Text)
+	}
+	// With no email look configured it still works, and names no logo.
+	plain := codeMessage(&config.Brand{Name: "Example", MailFrom: "Example <no-reply@example.com>"}, kindSignin, "a@example.com", "123456")
+	if strings.Contains(plain.HTML, "cid:") || len(plain.Inline) != 0 || !strings.Contains(plain.HTML, "#ffffff") {
+		t.Fatalf("plain brand: %d inline\n%s", len(plain.Inline), plain.HTML)
+	}
+}
+
+func TestMailLogoFileReachesTheEmail(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nfake")
+	e := newEnv(t, brandCfg{Registration: true, Extra: map[string]any{"mail_logo_file": "mail.png", "mail_accent": "#F47FA3"}, Files: map[string][]byte{"mail.png": png}})
+	b := e.browser()
+	p := b.start(e.z.newAuthRequest("web", nil, nil, ""))
+	b.post(p, "/login/email", url.Values{"email": {"new@example.com"}})
+	e.mail.mu.Lock()
+	defer e.mail.mu.Unlock()
+	if len(e.mail.msgs) != 1 || len(e.mail.msgs[0].Inline) != 1 || !bytes.Equal(e.mail.msgs[0].Inline[0].Data, png) || !strings.Contains(e.mail.msgs[0].HTML, "#F47FA3") {
 		t.Fatalf("mail: %+v", e.mail.msgs)
 	}
 }

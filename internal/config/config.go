@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -104,26 +105,32 @@ type IDP struct {
 // Brand is one customer-facing sign-in site (one Zitadel instance).
 type Brand struct {
 	ID                  string            `json:"id"`
-	Hosts               []string          `json:"hosts"`         // Host header values served, e.g. id.example.com
-	PublicOrigin        string            `json:"public_origin"` // e.g. https://id.example.com
-	ZitadelHost         string            `json:"zitadel_host"`  // instance host sent to Zitadel, e.g. id.example.com
-	Name                string            `json:"name"`          // shown in page titles, headings and emails
-	LogoFile            string            `json:"logo_file"`     // SVG/PNG/WebP/ICO, read at load; relative to the brands file; empty = built-in mark
-	Tagline             string            `json:"tagline"`       // optional small line under the card
-	MailFrom            string            `json:"mail_from"`     // From header of code emails, e.g. Example <no-reply@example.com>
-	MailSubjects        map[string]string `json:"mail_subjects"` // optional subject per email kind (signin, signup, reset, verify); {name} = Name
+	Hosts               []string          `json:"hosts"`          // Host header values served, e.g. id.example.com
+	PublicOrigin        string            `json:"public_origin"`  // e.g. https://id.example.com
+	ZitadelHost         string            `json:"zitadel_host"`   // instance host sent to Zitadel, e.g. id.example.com
+	Name                string            `json:"name"`           // shown in page titles, headings and emails
+	LogoFile            string            `json:"logo_file"`      // SVG/PNG/WebP/ICO, read at load; relative to the brands file; empty = built-in mark
+	Tagline             string            `json:"tagline"`        // optional small line under the card
+	MailFrom            string            `json:"mail_from"`      // From header of code emails, e.g. Example <no-reply@example.com>
+	MailSubjects        map[string]string `json:"mail_subjects"`  // optional subject per email kind (signin, signup, reset, verify); {name} = Name
+	MailLogoFile        string            `json:"mail_logo_file"` // PNG/GIF/JPEG carried inside code emails (mail clients drop SVG); relative to the brands file
+	MailAccent          string            `json:"mail_accent"`    // #rrggbb accent of code emails; empty = white
+	MailFooter          string            `json:"mail_footer"`    // optional line at the foot of code emails, e.g. the company and address
+	MailLinks           []MailLink        `json:"mail_links"`     // optional https links in that footer
 	PATFile             string            `json:"login_client_pat_file"`
 	ReturnURLs          []string          `json:"return_urls"` // allowlisted return URL prefixes (standalone reset, logout)
 	RegistrationEnabled bool              `json:"registration_enabled"`
 	OrgID               string            `json:"org_id"` // org for new users; empty = the login client's org
 	IDPs                []IDP             `json:"idps"`
 
-	Token       string    `json:"-"` // read from PATFile
-	Secure      bool      `json:"-"` // PublicOrigin is https
-	Logo        []byte    `json:"-"` // contents of LogoFile (nil = built-in mark)
-	LogoType    string    `json:"-"` // media type of Logo
-	LogoVersion string    `json:"-"` // short content hash, for cache busting
-	allow       []url.URL `json:"-"`
+	Token        string    `json:"-"` // read from PATFile
+	Secure       bool      `json:"-"` // PublicOrigin is https
+	Logo         []byte    `json:"-"` // contents of LogoFile (nil = built-in mark)
+	LogoType     string    `json:"-"` // media type of Logo
+	LogoVersion  string    `json:"-"` // short content hash, for cache busting
+	MailLogo     []byte    `json:"-"` // contents of MailLogoFile
+	MailLogoType string    `json:"-"` // media type of MailLogo
+	allow        []url.URL `json:"-"`
 }
 
 // MaxLogoBytes bounds a brand logo file.
@@ -190,6 +197,9 @@ func (b *Brand) prepare(dir string) error {
 	if err := b.loadLogo(dir); err != nil {
 		return err
 	}
+	if err := b.loadMail(dir); err != nil {
+		return err
+	}
 	for k, v := range b.MailSubjects {
 		if !slices.Contains(MailKinds, k) {
 			return fmt.Errorf("mail_subjects: unknown kind %q (want one of %s)", k, strings.Join(MailKinds, ", "))
@@ -232,6 +242,50 @@ func (b *Brand) prepare(dir string) error {
 			}
 		}
 	}
+	return nil
+}
+
+// MailLink is one link in the footer of a code email.
+type MailLink struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+var (
+	mailLogoTypes = map[string]string{".png": "image/png", ".gif": "image/gif", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+	mailAccent    = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+)
+
+// loadMail validates the look of the brand's code emails and reads its logo.
+func (b *Brand) loadMail(dir string) error {
+	if b.MailAccent != "" && !mailAccent.MatchString(b.MailAccent) {
+		return fmt.Errorf("mail_accent %q: must be #rrggbb", b.MailAccent)
+	}
+	for _, l := range b.MailLinks {
+		u, err := url.Parse(l.URL)
+		if l.Label == "" || err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("mail_links: %q needs a label and an https URL", l.URL)
+		}
+	}
+	if b.MailLogoFile == "" {
+		return nil
+	}
+	p := b.MailLogoFile
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
+	}
+	typ, ok := mailLogoTypes[strings.ToLower(filepath.Ext(p))]
+	if !ok {
+		return fmt.Errorf("mail_logo_file %s: must be .png, .gif or .jpg", p)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return fmt.Errorf("mail_logo_file: %w", err)
+	}
+	if len(data) == 0 || len(data) > MaxLogoBytes {
+		return fmt.Errorf("mail_logo_file %s: must be 1 byte to %d KiB", p, MaxLogoBytes>>10)
+	}
+	b.MailLogo, b.MailLogoType = data, typ
 	return nil
 }
 

@@ -280,6 +280,10 @@ file. Unknown fields are rejected.
 | `tagline` | Optional small line under the card |
 | `mail_from` | `From` of code and reset mail, e.g. `Example <no-reply@example.com>` |
 | `mail_subjects` | Optional subjects per email kind: `signin`, `signup`, `reset`, `verify`; `{name}` is replaced by `name` |
+| `mail_logo_file` | Optional logo carried inside code emails (`.png`, `.gif` or `.jpg`, at most 256 KiB; mail clients drop SVG), relative to the brands file |
+| `mail_accent` | Optional `#rrggbb` accent of code emails; white when unset |
+| `mail_footer` | Optional line at the foot of code emails, such as the company and its address |
+| `mail_links` | Optional footer links, `[{label, url}]`, `https` only |
 | `login_client_pat_file` | The instance's `IAM_LOGIN_CLIENT` token |
 | `return_urls` | Allowlisted return URL prefixes (scheme, host, port exact; path segment prefix) for `/reset?return=` and logout |
 | `registration_enabled` | Unknown addresses may sign up (by code, or via an IdP) |
