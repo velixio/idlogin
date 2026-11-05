@@ -69,7 +69,7 @@ func nativeFail(w http.ResponseWriter, code string) {
 		status = http.StatusGone
 	case nativeClientNotAllowed, nativeUnavailable:
 		status = http.StatusForbidden
-	case nativeSendFailed, nativeTemporary:
+	case nativeTemporary:
 		status = http.StatusServiceUnavailable
 	}
 	nativeJSON(w, status, nativeResponse{Error: code})
