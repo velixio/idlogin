@@ -443,6 +443,31 @@ func (s *stack) overrideBrands(idpID string) {
 	})
 }
 
+// allowNativeAPI lets a native app created during the run use the JSON API.
+// overrideBrands restores the file at the end.
+func (s *stack) allowNativeAPI(clientID string) {
+	t := s.t
+	path := s.env["LOGIN_BRANDS_FILE"]
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Brands []map[string]any `json:"brands"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range doc.Brands {
+		b["native_api_clients"] = []string{clientID}
+	}
+	out, _ := json.MarshalIndent(doc, "", "  ")
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.reload()
+}
+
 func (s *stack) reload() {
 	b, err := os.ReadFile(filepath.Join(s.home, "idlogin.pid"))
 	if err != nil {

@@ -166,6 +166,10 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /login/consent", s.handleConsent)
 	m.HandleFunc("GET /login/approve", s.handleApprovePage)
 	m.HandleFunc("POST /login/approve", s.handleApprove)
+	m.HandleFunc("POST "+nativePrefix+"start", s.handleNativeStart)
+	m.HandleFunc("POST "+nativePrefix+"resend", s.handleNativeResend)
+	m.HandleFunc("POST "+nativePrefix+"code", s.handleNativeCode)
+	m.HandleFunc("POST "+nativePrefix+"totp", s.handleNativeTOTP)
 	m.HandleFunc("POST /login/idp", s.handleIDPStart)
 	m.HandleFunc("GET /login/idp/callback", s.handleIDPCallback)
 	m.HandleFunc("GET /login/idp/failure", s.handleIDPFailure)
@@ -250,7 +254,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 	}
 	if r.Method == http.MethodPost {
-		if !sameOrigin(r, b.PublicOrigin) {
+		if strings.HasPrefix(r.URL.Path, nativePrefix) {
+			if !nativeRequest(r) {
+				http.Error(w, "browser request refused", http.StatusForbidden)
+				return
+			}
+		} else if !sameOrigin(r, b.PublicOrigin) {
 			http.Error(w, "cross-origin request refused", http.StatusForbidden)
 			return
 		}

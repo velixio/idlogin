@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +120,46 @@ func TestBrandLogoAndSubjects(t *testing.T) {
 	for _, bad := range []string{`,"logo_file":"missing.svg"`, `,"logo_file":"logo.gif"`, `,"mail_subjects":{"other":"x"}`, `,"mail_subjects":{"reset":""}`, `,"logo":"x.svg"`} {
 		if _, err := LoadBrands(writeBrands(t, body(bad))); err == nil {
 			t.Errorf("accepted %s", bad)
+		}
+	}
+}
+
+// TestReviewLoginsValidated checks that bad review login files are rejected.
+func TestReviewLoginsValidated(t *testing.T) {
+	load := func(t *testing.T, clients []string, file string) (*Brands, error) {
+		t.Helper()
+		dir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(dir, "pat"), []byte("token"), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "review.json"), []byte(file), 0o600)
+		raw, _ := json.Marshal(map[string]any{"brands": []any{map[string]any{
+			"id": "a", "name": "A", "hosts": []string{"a.test"}, "public_origin": "https://a.test",
+			"zitadel_host": "z.test", "mail_from": "A <a@a.test>", "login_client_pat_file": "pat",
+			"native_api_clients": clients, "native_review_logins_file": "review.json",
+		}}})
+		_ = os.WriteFile(filepath.Join(dir, "brands.json"), raw, 0o600)
+		return LoadBrands(filepath.Join(dir, "brands.json"))
+	}
+	b, err := load(t, []string{"app"}, `[{"email":"R@A.test","code":"123456"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.ByHost["a.test"].ReviewLogins["r@a.test"] != "123456" {
+		t.Fatalf("logins: %v", b.ByHost["a.test"].ReviewLogins)
+	}
+	for name, c := range map[string]struct {
+		clients []string
+		file    string
+	}{
+		"no clients": {nil, `[{"email":"r@a.test","code":"123456"}]`},
+		"bad json":   {[]string{"app"}, `secret-code`},
+		"short code": {[]string{"app"}, `[{"email":"r@a.test","code":"123"}]`},
+		"no email":   {[]string{"app"}, `[{"email":"nope","code":"123456"}]`},
+	} {
+		_, err := load(t, c.clients, c.file)
+		if err == nil {
+			t.Errorf("%s: loaded", name)
+		} else if strings.Contains(err.Error(), "secret-code") {
+			t.Errorf("%s: error quotes the file: %v", name, err)
 		}
 	}
 }

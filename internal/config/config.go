@@ -122,15 +122,22 @@ type Brand struct {
 	RegistrationEnabled bool              `json:"registration_enabled"`
 	OrgID               string            `json:"org_id"` // org for new users; empty = the login client's org
 	IDPs                []IDP             `json:"idps"`
+	// NativeAPIClients are the OIDC client IDs of first-party native apps that
+	// may sign in through the JSON API. Empty turns the API off.
+	NativeAPIClients []string `json:"native_api_clients"`
+	// NativeReviewLoginsFile lists accounts an app store reviewer signs in to,
+	// who cannot read a mailbox: [{"email": ..., "code": "123456"}]. Optional.
+	NativeReviewLoginsFile string `json:"native_review_logins_file"`
 
-	Token        string    `json:"-"` // read from PATFile
-	Secure       bool      `json:"-"` // PublicOrigin is https
-	Logo         []byte    `json:"-"` // contents of LogoFile (nil = built-in mark)
-	LogoType     string    `json:"-"` // media type of Logo
-	LogoVersion  string    `json:"-"` // short content hash, for cache busting
-	MailLogo     []byte    `json:"-"` // contents of MailLogoFile
-	MailLogoType string    `json:"-"` // media type of MailLogo
-	allow        []url.URL `json:"-"`
+	Token        string            `json:"-"` // read from PATFile
+	ReviewLogins map[string]string `json:"-"` // lower-case email -> code, from NativeReviewLoginsFile
+	Secure       bool              `json:"-"` // PublicOrigin is https
+	Logo         []byte            `json:"-"` // contents of LogoFile (nil = built-in mark)
+	LogoType     string            `json:"-"` // media type of Logo
+	LogoVersion  string            `json:"-"` // short content hash, for cache busting
+	MailLogo     []byte            `json:"-"` // contents of MailLogoFile
+	MailLogoType string            `json:"-"` // media type of MailLogo
+	allow        []url.URL         `json:"-"`
 }
 
 // MaxLogoBytes bounds a brand logo file.
@@ -218,6 +225,9 @@ func (b *Brand) prepare(dir string) error {
 	}
 	if b.Token = strings.TrimSpace(string(tok)); b.Token == "" {
 		return fmt.Errorf("login client token file %s is empty", pat)
+	}
+	if err := b.loadReviewLogins(dir); err != nil {
+		return err
 	}
 	for _, r := range b.ReturnURLs {
 		u, err := url.Parse(r)
@@ -373,4 +383,53 @@ func (b *Brand) AllowedReturn(raw string) bool {
 		}
 	}
 	return false
+}
+
+// loadReviewLogins reads the brand's optional fixed-code review logins from its file.
+func (b *Brand) loadReviewLogins(dir string) error {
+	b.ReviewLogins = nil
+	if b.NativeReviewLoginsFile == "" {
+		return nil
+	}
+	if len(b.NativeAPIClients) == 0 {
+		return errors.New("native_review_logins_file needs native_api_clients")
+	}
+	path := b.NativeReviewLoginsFile
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("review logins: %w", err)
+	}
+	var entries []struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		// The error could quote the file, which holds codes.
+		return fmt.Errorf("review logins file %s is not valid JSON", path)
+	}
+	b.ReviewLogins = make(map[string]string, len(entries))
+	for i, e := range entries {
+		email := strings.ToLower(strings.TrimSpace(e.Email))
+		if !strings.Contains(email, "@") || !sixDigits(e.Code) {
+			return fmt.Errorf("review logins entry %d needs an email and a 6-digit code", i)
+		}
+		b.ReviewLogins[email] = e.Code
+	}
+	return nil
+}
+
+// sixDigits reports whether code is exactly six ASCII digits.
+func sixDigits(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	for _, c := range code {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

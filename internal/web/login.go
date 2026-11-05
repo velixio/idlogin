@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -308,6 +309,17 @@ const (
 	errSendFailed   = sendProblem("We could not send the email. Try again in a moment.")
 )
 
+// Results of checkCode. The pages show them as they are; the JSON API maps them
+// to error codes.
+const (
+	msgCodeFormat      = "Enter the 6-digit code from the email."
+	msgTooManyAttempts = "Too many attempts. Try again in a few minutes."
+	msgCodeWrong       = "That code is not right. Check the latest email and try again."
+	msgCodeLocked      = "Too many wrong attempts for this code. Send a new code."
+	msgCodeExpired     = "That code has expired. Send a new code."
+	msgCodeGone        = "That code is no longer valid. Send a new code."
+)
+
 func newCode() string {
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	if err != nil {
@@ -321,6 +333,16 @@ func newCode() string {
 // deliver=false the code is stored but never sent (reset for an unknown
 // address), so the pages behave the same either way.
 func (s *Server) sendCode(r *http.Request, f *flow, kind, userID string, deliver bool) error {
+	code := newCode()
+	if !deliver {
+		code = randomToken(24) // unguessable, never sent
+	}
+	return s.issueCode(r, f, kind, userID, code, deliver)
+}
+
+// issueCode stores code for the address, under the send limits, and mails it
+// when deliver is set.
+func (s *Server) issueCode(r *http.Request, f *flow, kind, userID, code string, deliver bool) error {
 	b := brandOf(r)
 	ctx := r.Context()
 	ok, err := s.store.Allow(ctx,
@@ -332,11 +354,7 @@ func (s *Server) sendCode(r *http.Request, f *flow, kind, userID string, deliver
 	if !ok {
 		return errTooManyCodes
 	}
-	code := newCode()
 	id := randomToken(18)
-	if !deliver {
-		code = randomToken(24) // unguessable, never sent
-	}
 	if err := s.store.PutCode(ctx, store.Code{
 		ID: id, Brand: b.ID, Purpose: kind, Email: f.Email, UserID: userID,
 		Hash: s.hashCode(id, code), ExpiresAt: s.now().Add(CodeTTL),
@@ -502,10 +520,10 @@ func (s *Server) checkCode(r *http.Request, f *flow, code string) (string, *stor
 	ctx := r.Context()
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if !validCodeFormat(code) {
-		return "Enter the 6-digit code from the email.", nil, nil
+		return msgCodeFormat, nil, nil
 	}
 	if ok, err := s.store.Allow(ctx, s.limit(s.limits.CodeChecksPerIP, "code:ip:"+s.clientIP(r))); err != nil || !ok {
-		return "Too many attempts. Try again in a few minutes.", nil, err
+		return msgTooManyAttempts, nil, err
 	}
 	want := s.hashCode(f.CodeID, code)
 	res, c, err := s.store.CheckCode(ctx, f.CodeID, func(stored []byte) bool { return ctEqual(string(stored), string(want)) }, CodeMaxAttempts)
@@ -515,17 +533,17 @@ func (s *Server) checkCode(r *http.Request, f *flow, code string) (string, *stor
 	switch res {
 	case store.CodeOK:
 		if c.Brand != b.ID || c.Purpose != f.CodeKind || c.Email != f.Email {
-			return "That code is not right. Check the latest email and try again.", nil, nil
+			return msgCodeWrong, nil, nil
 		}
 		return "", c, nil
 	case store.CodeWrong:
-		return "That code is not right. Check the latest email and try again.", nil, nil
+		return msgCodeWrong, nil, nil
 	case store.CodeLocked:
-		return "Too many wrong attempts for this code. Send a new code.", nil, nil
+		return msgCodeLocked, nil, nil
 	case store.CodeExpired:
-		return "That code has expired. Send a new code.", nil, nil
+		return msgCodeExpired, nil, nil
 	}
-	return "That code is no longer valid. Send a new code.", nil, nil
+	return msgCodeGone, nil, nil
 }
 
 func (s *Server) handleCode(w http.ResponseWriter, r *http.Request) {
@@ -611,23 +629,58 @@ func (s *Server) codeSession(ctx context.Context, b *config.Brand, userID string
 // verified, no password. If the address got an account in the meantime, that
 // account is used (the code proved ownership of the address).
 func (s *Server) signupUser(w http.ResponseWriter, r *http.Request, f *flow) (string, bool) {
-	b := brandOf(r)
-	ctx := r.Context()
+	uid, err := s.ensureSignupUser(r.Context(), brandOf(r), f)
+	if err != nil {
+		if errors.Is(err, errUnavailable) {
+			s.unavailable(w, r, f)
+		} else {
+			s.stepFailure(w, r, err)
+		}
+		return "", false
+	}
+	return uid, true
+}
+
+// errUnavailable means the neutral "cannot use this address" answer applies.
+var errUnavailable = errors.New("unavailable")
+
+// stepError is a provider failure and the operation that hit it, for logs.
+type stepError struct {
+	what string
+	err  error
+}
+
+// Error names the failed step and its cause.
+func (e *stepError) Error() string { return e.what + ": " + e.err.Error() }
+
+// Unwrap returns the underlying error.
+func (e *stepError) Unwrap() error { return e.err }
+
+// stepFailure renders a login failure, labelled with the step that failed when known.
+func (s *Server) stepFailure(w http.ResponseWriter, r *http.Request, err error) {
+	var se *stepError
+	if errors.As(err, &se) {
+		s.failure(w, r, se.err, se.what)
+		return
+	}
+	s.failure(w, r, err, "login step")
+}
+
+// ensureSignupUser returns the account for a proven sign-up address, creating
+// it when needed.
+func (s *Server) ensureSignupUser(ctx context.Context, b *config.Brand, f *flow) (string, error) {
 	users, err := s.api.FindUsers(ctx, instance(b), f.Email)
 	if err != nil {
-		s.failure(w, r, err, "find users")
-		return "", false
+		return "", &stepError{"find users", err}
 	}
 	if len(users) == 1 {
 		if !users[0].Usable() {
-			s.unavailable(w, r, f)
-			return "", false
+			return "", errUnavailable
 		}
-		return users[0].UserID, true
+		return users[0].UserID, nil
 	}
 	if len(users) > 1 || !b.RegistrationEnabled {
-		s.unavailable(w, r, f)
-		return "", false
+		return "", errUnavailable
 	}
 	local := f.Email[:strings.LastIndex(f.Email, "@")]
 	if len(local) > 200 {
@@ -639,15 +692,14 @@ func (s *Server) signupUser(w http.ResponseWriter, r *http.Request, f *flow) (st
 	})
 	if zitadel.IsAlreadyExists(err) {
 		if users, err2 := s.api.FindUsers(ctx, instance(b), f.Email); err2 == nil && len(users) == 1 && users[0].Usable() {
-			return users[0].UserID, true
+			return users[0].UserID, nil
 		}
 	}
 	if err != nil {
-		s.failure(w, r, err, "create user")
-		return "", false
+		return "", &stepError{"create user", err}
 	}
 	s.log.Info("account created", "brand", b.ID, "user", uid)
-	return uid, true
+	return uid, nil
 }
 
 func (s *Server) handleTOTPPage(w http.ResponseWriter, r *http.Request) {
@@ -718,10 +770,9 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	s.toStep(w, r, n)
 }
 
-// complete runs after a first factor succeeded: TOTP if the user has it,
-// email verification if the address is unverified, then finalises the auth
-// request (or, for a standalone reset, returns to the product).
-func (s *Server) complete(w http.ResponseWriter, r *http.Request, f *flow, res *zitadel.SessionResult) {
+// secondFactors checks what a first factor still needs and returns the step to
+// show next, or "" when the sign-in may finish.
+func (s *Server) secondFactors(r *http.Request, f *flow, res *zitadel.SessionResult) (string, error) {
 	b := brandOf(r)
 	ctx := r.Context()
 	in := instance(b)
@@ -729,45 +780,61 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, f *flow, res *
 	if !f.totpDone() {
 		methods, err := s.api.AuthMethods(ctx, in, f.UserID)
 		if err != nil {
-			s.failure(w, r, err, "auth methods")
-			return
+			return "", &stepError{"auth methods", err}
 		}
 		if slices.Contains(methods, zitadel.MethodTOTP) {
-			f.Step = stepTOTP
-			s.saveFlow(w, b, f)
-			s.toStep(w, r, f)
-			return
+			return stepTOTP, nil
 		}
 		f.TOTPFor = totpKey(f.UserID, f.SessionID)
 	}
 	user, err := s.api.GetUser(ctx, in, f.UserID)
 	if err != nil {
-		s.failure(w, r, err, "get user")
-		return
+		return "", &stepError{"get user", err}
 	}
 	if !user.Usable() {
-		s.unavailable(w, r, f)
-		return
+		return "", errUnavailable
 	}
 	if !user.Human.Email.IsVerified {
 		email := strings.ToLower(user.Email())
 		if f.EmailProven && email == f.Email {
 			if err := s.api.MarkEmailVerified(ctx, in, f.UserID, user.Email()); err != nil {
-				s.failure(w, r, err, "verify email")
-				return
+				return "", &stepError{"verify email", err}
 			}
 		} else {
 			f.Email = email
 			f.EmailProven = false
 			if err := s.sendCode(r, f, kindVerify, f.UserID, true); err != nil {
-				s.sendError(w, r, f, err, "email")
-				return
+				return "", err
 			}
-			f.Step = stepCode
-			s.saveFlow(w, b, f)
-			s.toStep(w, r, f)
-			return
+			return stepCode, nil
 		}
+	}
+	return "", nil
+}
+
+// complete runs after a first factor succeeded: TOTP if the user has it,
+// email verification if the address is unverified, then finalises the auth
+// request (or, for a standalone reset, returns to the product).
+func (s *Server) complete(w http.ResponseWriter, r *http.Request, f *flow, res *zitadel.SessionResult) {
+	b := brandOf(r)
+	ctx := r.Context()
+	in := instance(b)
+	next, err := s.secondFactors(r, f, res)
+	if err != nil {
+		if errors.Is(err, errUnavailable) {
+			s.unavailable(w, r, f)
+		} else if _, sending := err.(sendProblem); sending {
+			s.sendError(w, r, f, err, "email")
+		} else {
+			s.stepFailure(w, r, err)
+		}
+		return
+	}
+	if next != "" {
+		f.Step = next
+		s.saveFlow(w, b, f)
+		s.toStep(w, r, f)
+		return
 	}
 	entry := browserSession{ID: f.SessionID, Token: f.SessionTok, UserID: f.UserID, Remember: f.Remember}
 	if f.AuthRequest == "" {

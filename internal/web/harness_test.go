@@ -279,3 +279,13 @@ func (s *Server) browserSessionsForTest(t *testing.T, b *browser) []browserSessi
 	}
 	return nil
 }
+
+// brandForTest returns the brand served by the test server.
+func brandForTest(t *testing.T, e *env) *config.Brand {
+	t.Helper()
+	b := e.web.brands().ByHost[strings.ToLower(e.srv.Listener.Addr().String())]
+	if b == nil {
+		t.Fatal("no brand")
+	}
+	return b
+}
