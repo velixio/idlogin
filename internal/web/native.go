@@ -53,12 +53,14 @@ type nativeResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
+// nativeJSON writes one API response with the given status.
 func nativeJSON(w http.ResponseWriter, status int, v nativeResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// nativeFail writes an API error code with its matching status.
 func nativeFail(w http.ResponseWriter, code string) {
 	status := http.StatusUnprocessableEntity
 	switch code {
@@ -75,6 +77,7 @@ func nativeFail(w http.ResponseWriter, code string) {
 	nativeJSON(w, status, nativeResponse{Error: code})
 }
 
+// nativeFlowPurpose scopes sealed API flows to the brand, apart from browser cookies.
 func nativeFlowPurpose(b *config.Brand) string { return "idl-native-flow:" + b.ID }
 
 // nativeStep answers with the next step and the flow that continues it. The
@@ -91,6 +94,7 @@ func (s *Server) nativeStep(w http.ResponseWriter, r *http.Request, f *flow, ste
 	nativeJSON(w, http.StatusOK, nativeResponse{Step: step, Flow: sealed})
 }
 
+// nativeBody decodes the JSON request body, answering the request itself when it can't.
 func nativeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		nativeJSON(w, http.StatusBadRequest, nativeResponse{Error: nativeExpired})
@@ -114,6 +118,7 @@ func (s *Server) nativeFlow(w http.ResponseWriter, r *http.Request, sealed, step
 	return &f, true
 }
 
+// nativeSendFailure maps a failure to send a code to its API error.
 func (s *Server) nativeSendFailure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errTooManyCodes):
@@ -136,6 +141,7 @@ func (s *Server) sendNativeCode(r *http.Request, f *flow, kind string) error {
 	return s.sendCode(r, f, kind, f.UserID, true)
 }
 
+// handleNativeStart begins sign-in for an email and sends its first code.
 func (s *Server) handleNativeStart(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AuthRequest string `json:"auth_request"`
@@ -209,6 +215,7 @@ func (s *Server) handleNativeStart(w http.ResponseWriter, r *http.Request) {
 	s.nativeStep(w, r, f, stepCode)
 }
 
+// handleNativeResend sends a new code for a flow waiting on one.
 func (s *Server) handleNativeResend(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Flow string `json:"flow"`
@@ -227,6 +234,7 @@ func (s *Server) handleNativeResend(w http.ResponseWriter, r *http.Request) {
 	s.nativeStep(w, r, f, stepCode)
 }
 
+// handleNativeCode checks an emailed code and moves the flow to its next step.
 func (s *Server) handleNativeCode(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Flow string `json:"flow"`
@@ -288,6 +296,7 @@ func (s *Server) handleNativeCode(w http.ResponseWriter, r *http.Request) {
 	s.nativeComplete(w, r, f, res)
 }
 
+// handleNativeTOTP checks an authenticator code and finishes the flow.
 func (s *Server) handleNativeTOTP(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Flow string `json:"flow"`
@@ -324,6 +333,7 @@ func (s *Server) handleNativeTOTP(w http.ResponseWriter, r *http.Request) {
 	s.nativeComplete(w, r, f, res)
 }
 
+// nativeFailure maps a sign-in step failure to its API error, logging unexpected ones.
 func (s *Server) nativeFailure(w http.ResponseWriter, err error) {
 	if errors.Is(err, errUnavailable) {
 		nativeFail(w, nativeUnavailable)

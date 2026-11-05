@@ -124,6 +124,7 @@ func TestBrandLogoAndSubjects(t *testing.T) {
 	}
 }
 
+// TestReviewLoginsValidated checks that bad review login files are rejected.
 func TestReviewLoginsValidated(t *testing.T) {
 	load := func(t *testing.T, clients []string, file string) (*Brands, error) {
 		t.Helper()

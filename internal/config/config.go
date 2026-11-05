@@ -385,6 +385,7 @@ func (b *Brand) AllowedReturn(raw string) bool {
 	return false
 }
 
+// loadReviewLogins reads the brand's optional fixed-code review logins from its file.
 func (b *Brand) loadReviewLogins(dir string) error {
 	b.ReviewLogins = nil
 	if b.NativeReviewLoginsFile == "" {
@@ -420,6 +421,7 @@ func (b *Brand) loadReviewLogins(dir string) error {
 	return nil
 }
 
+// sixDigits reports whether code is exactly six ASCII digits.
 func sixDigits(code string) bool {
 	if len(code) != 6 {
 		return false

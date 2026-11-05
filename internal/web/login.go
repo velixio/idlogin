@@ -650,9 +650,13 @@ type stepError struct {
 	err  error
 }
 
+// Error names the failed step and its cause.
 func (e *stepError) Error() string { return e.what + ": " + e.err.Error() }
+
+// Unwrap returns the underlying error.
 func (e *stepError) Unwrap() error { return e.err }
 
+// stepFailure renders a login failure, labelled with the step that failed when known.
 func (s *Server) stepFailure(w http.ResponseWriter, r *http.Request, err error) {
 	var se *stepError
 	if errors.As(err, &se) {

@@ -22,6 +22,7 @@ type nativeReply struct {
 	Retry    string
 }
 
+// nativeEnv starts a test server with the API enabled for one allowed client.
 func nativeEnv(t *testing.T, registration bool) *env {
 	t.Helper()
 	e := newEnv(t, brandCfg{Registration: registration, Extra: map[string]any{"native_api_clients": []string{nativeClient}}})
@@ -29,6 +30,7 @@ func nativeEnv(t *testing.T, registration bool) *env {
 	return e
 }
 
+// nativeRaw posts to an API path with exact headers and decodes the reply.
 func (e *env) nativeRaw(path string, body any, headers map[string]string) nativeReply {
 	e.t.Helper()
 	raw, _ := json.Marshal(body)
@@ -53,16 +55,19 @@ func (e *env) nativeRaw(path string, body any, headers map[string]string) native
 	return out
 }
 
+// nativeStart calls the start endpoint.
 func (e *env) nativeStart(ar, email string) nativeReply {
 	e.t.Helper()
 	return e.nativeRaw("/login/native/start", map[string]string{"auth_request": ar, "email": email}, nil)
 }
 
+// nativeCode calls the code endpoint.
 func (e *env) nativeCode(flow, code string) nativeReply {
 	e.t.Helper()
 	return e.nativeRaw("/login/native/code", map[string]string{"flow": flow, "code": code}, nil)
 }
 
+// wantStep fails the test unless the reply is a success at step.
 func wantStep(t *testing.T, r nativeReply, step string) {
 	t.Helper()
 	if r.Status != http.StatusOK || r.Step != step {
@@ -70,6 +75,7 @@ func wantStep(t *testing.T, r nativeReply, step string) {
 	}
 }
 
+// wantError fails the test unless the reply has this status and error code.
 func wantError(t *testing.T, r nativeReply, status int, code string) {
 	t.Helper()
 	if r.Status != status || r.Error != code {
@@ -77,6 +83,7 @@ func wantError(t *testing.T, r nativeReply, status int, code string) {
 	}
 }
 
+// wrongCode returns a valid-looking code that differs from right.
 func wrongCode(right string) string {
 	if right == "000000" {
 		return "111111"
@@ -84,6 +91,7 @@ func wrongCode(right string) string {
 	return "000000"
 }
 
+// TestNativeNewEmailSignsUpAfterCode covers sign-up with a new address.
 func TestNativeNewEmailSignsUpAfterCode(t *testing.T) {
 	e := nativeEnv(t, true)
 	ar := e.z.newAuthRequest(nativeClient, []string{zitadel.PromptLogin}, nil, "")
@@ -102,6 +110,7 @@ func TestNativeNewEmailSignsUpAfterCode(t *testing.T) {
 	}
 }
 
+// TestNativePasswordUserGetsCode checks a password account still signs in by code.
 func TestNativePasswordUserGetsCode(t *testing.T) {
 	e := nativeEnv(t, true)
 	e.z.addUser("pw@example.com", "Secret-123", true)
@@ -111,6 +120,7 @@ func TestNativePasswordUserGetsCode(t *testing.T) {
 	wantStep(t, e.nativeCode(r.Flow, e.mail.lastCode(t, "pw@example.com")), "done")
 }
 
+// TestNativeConsentPromptDoesNotBlockAllowedClient checks a consent prompt adds no step.
 func TestNativeConsentPromptDoesNotBlockAllowedClient(t *testing.T) {
 	e := nativeEnv(t, true)
 	e.z.addUser("c@example.com", "", true)
@@ -119,6 +129,7 @@ func TestNativeConsentPromptDoesNotBlockAllowedClient(t *testing.T) {
 	wantStep(t, e.nativeCode(r.Flow, e.mail.lastCode(t, "c@example.com")), "done")
 }
 
+// TestNativeTOTPStepRequired checks an authenticator account must pass that step.
 func TestNativeTOTPStepRequired(t *testing.T) {
 	e := nativeEnv(t, true)
 	e.z.addUser("totp@example.com", "", true).totp = "424242"
@@ -136,6 +147,7 @@ func TestNativeTOTPStepRequired(t *testing.T) {
 	wantStep(t, totp("424242"), "done")
 }
 
+// TestNativeRejectsBrowserRequests checks the API refuses browser requests.
 func TestNativeRejectsBrowserRequests(t *testing.T) {
 	e := nativeEnv(t, true)
 	for name, headers := range map[string]map[string]string{
@@ -155,6 +167,7 @@ func TestNativeRejectsBrowserRequests(t *testing.T) {
 	}
 }
 
+// TestNativeClientAllowlist checks clients outside the list are refused.
 func TestNativeClientAllowlist(t *testing.T) {
 	e := nativeEnv(t, true)
 	e.z.native["other"] = true
@@ -166,12 +179,14 @@ func TestNativeClientAllowlist(t *testing.T) {
 	}
 }
 
+// TestNativeOffByDefault checks the API is closed unless configured.
 func TestNativeOffByDefault(t *testing.T) {
 	e := newEnv(t, brandCfg{Registration: true})
 	e.z.native[nativeClient] = true
 	wantError(t, e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com"), http.StatusForbidden, "client_not_allowed")
 }
 
+// TestNativeInputErrors covers invalid request input.
 func TestNativeInputErrors(t *testing.T) {
 	e := nativeEnv(t, true)
 	ar := e.z.newAuthRequest(nativeClient, nil, nil, "")
@@ -180,6 +195,7 @@ func TestNativeInputErrors(t *testing.T) {
 	wantError(t, e.nativeCode("forged", "123456"), http.StatusGone, "expired")
 }
 
+// TestNativeWrongCodeLocks checks repeated wrong codes lock the attempt.
 func TestNativeWrongCodeLocks(t *testing.T) {
 	e := nativeEnv(t, true)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com")
@@ -193,6 +209,7 @@ func TestNativeWrongCodeLocks(t *testing.T) {
 	wantError(t, e.nativeCode(r.Flow, e.mail.lastCode(t, "a@example.com")), http.StatusUnprocessableEntity, "code_locked")
 }
 
+// TestNativeExpiredCode checks an expired code is refused.
 func TestNativeExpiredCode(t *testing.T) {
 	e := nativeEnv(t, true)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com")
@@ -200,6 +217,7 @@ func TestNativeExpiredCode(t *testing.T) {
 	wantError(t, e.nativeCode(r.Flow, e.mail.lastCode(t, "a@example.com")), http.StatusUnprocessableEntity, "code_expired")
 }
 
+// TestNativeRateLimited checks too many requests are limited.
 func TestNativeRateLimited(t *testing.T) {
 	e := nativeEnv(t, true)
 	ar := e.z.newAuthRequest(nativeClient, nil, nil, "")
@@ -213,6 +231,7 @@ func TestNativeRateLimited(t *testing.T) {
 	}
 }
 
+// TestNativeResendInvalidatesOldCode checks a resend replaces the earlier code.
 func TestNativeResendInvalidatesOldCode(t *testing.T) {
 	e := nativeEnv(t, true)
 	first := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com")
@@ -234,6 +253,7 @@ func TestNativeResendInvalidatesOldCode(t *testing.T) {
 	wantStep(t, e.nativeCode(second.Flow, newCode), "done")
 }
 
+// TestNativeFlowNotInterchangeableWithCookie checks API flows and browser cookies can't stand in for each other.
 func TestNativeFlowNotInterchangeableWithCookie(t *testing.T) {
 	e := nativeEnv(t, true)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com")
@@ -249,6 +269,7 @@ func TestNativeFlowNotInterchangeableWithCookie(t *testing.T) {
 	wantError(t, e.nativeCode(sealed, "123456"), http.StatusGone, "expired")
 }
 
+// TestNativeReplayAfterFinalizeExpired checks a finished flow can't be replayed.
 func TestNativeReplayAfterFinalizeExpired(t *testing.T) {
 	e := nativeEnv(t, true)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com")
@@ -257,6 +278,7 @@ func TestNativeReplayAfterFinalizeExpired(t *testing.T) {
 	wantError(t, e.nativeCode(r.Flow, code), http.StatusGone, "expired")
 }
 
+// TestNativeDisabledAndAmbiguousNeutral checks locked and unknown accounts get the same answer and no mail.
 func TestNativeDisabledAndAmbiguousNeutral(t *testing.T) {
 	e := nativeEnv(t, false)
 	e.z.addUser("locked@example.com", "", true).State = zitadel.UserStateLocked
@@ -269,6 +291,7 @@ func TestNativeDisabledAndAmbiguousNeutral(t *testing.T) {
 	}
 }
 
+// TestNativeLeavesNoBrowserSession checks API sign-in remembers no browser session.
 func TestNativeLeavesNoBrowserSession(t *testing.T) {
 	e := nativeEnv(t, true)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "a@example.com")
@@ -279,6 +302,7 @@ func TestNativeLeavesNoBrowserSession(t *testing.T) {
 	}
 }
 
+// TestWebPasswordStepUnchanged checks the web pages still ask for a password.
 func TestWebPasswordStepUnchanged(t *testing.T) {
 	e := nativeEnv(t, true)
 	e.z.addUser("pw@example.com", "Secret-123", true)
@@ -287,6 +311,7 @@ func TestWebPasswordStepUnchanged(t *testing.T) {
 	mustContain(t, p, "Enter your password")
 }
 
+// reviewEnv starts a test server with one fixed-code review login.
 func reviewEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnv(t, brandCfg{Registration: true,
@@ -297,6 +322,7 @@ func reviewEnv(t *testing.T) *env {
 	return e
 }
 
+// TestReviewLoginUsesFixedCodeWithoutMail checks a review login signs in with its code and no mail.
 func TestReviewLoginUsesFixedCodeWithoutMail(t *testing.T) {
 	e := reviewEnv(t)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "review@example.com")
@@ -307,6 +333,7 @@ func TestReviewLoginUsesFixedCodeWithoutMail(t *testing.T) {
 	wantStep(t, e.nativeCode(r.Flow, "314159"), "done")
 }
 
+// TestReviewLoginResendKeepsFixedCode checks a resend keeps the fixed code.
 func TestReviewLoginResendKeepsFixedCode(t *testing.T) {
 	e := reviewEnv(t)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "review@example.com")
@@ -318,6 +345,7 @@ func TestReviewLoginResendKeepsFixedCode(t *testing.T) {
 	wantStep(t, e.nativeCode(again.Flow, "314159"), "done")
 }
 
+// TestReviewLoginOnlyOnNativeAPI checks the web pages ignore review logins.
 func TestReviewLoginOnlyOnNativeAPI(t *testing.T) {
 	e := reviewEnv(t)
 	b := e.browser()
@@ -331,6 +359,7 @@ func TestReviewLoginOnlyOnNativeAPI(t *testing.T) {
 	}
 }
 
+// TestReviewLoginWrongCodeStillLocks checks review logins lock like any other.
 func TestReviewLoginWrongCodeStillLocks(t *testing.T) {
 	e := reviewEnv(t)
 	r := e.nativeStart(e.z.newAuthRequest(nativeClient, nil, nil, ""), "review@example.com")
@@ -342,6 +371,7 @@ func TestReviewLoginWrongCodeStillLocks(t *testing.T) {
 	wantError(t, e.nativeCode(r.Flow, "314159"), http.StatusUnprocessableEntity, "code_locked")
 }
 
+// TestReviewLoginAbsentByDefault checks no review login exists unless configured.
 func TestReviewLoginAbsentByDefault(t *testing.T) {
 	e := nativeEnv(t, true)
 	e.z.addUser("review@example.com", "", true)
