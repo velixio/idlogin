@@ -1,6 +1,9 @@
 package e2e
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"net/url"
 	"os"
 	"slices"
@@ -300,6 +303,56 @@ func TestE2E(t *testing.T) {
 			t.Fatalf("access token claims lack email: %v", claims)
 		}
 		nativeRefresh = tok.RefreshToken
+	})
+
+	t.Run("native JSON API signs in without a browser", func(t *testing.T) {
+		if s.native == "" {
+			t.Skip("no native app")
+		}
+		s.allowNativeAPI(s.native)
+		noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		ver, ch := pkce()
+		resp, err := noRedirect.Get(authorizeURL(s.native, nativeCB, "openid email offline_access", ch, map[string]string{"prompt": "login"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		loc, err := url.Parse(resp.Header.Get("Location"))
+		if err != nil || loc.Query().Get("authRequest") == "" {
+			t.Fatalf("authorize answered %d %q", resp.StatusCode, resp.Header.Get("Location"))
+		}
+		post := func(path string, body map[string]string) (out struct {
+			Step, Flow, Callback, Error string
+		}) {
+			raw, _ := json.Marshal(body)
+			req, _ := http.NewRequest("POST", loginURL+path, bytes.NewReader(raw))
+			req.Header.Set("Content-Type", "application/json")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			_ = json.NewDecoder(res.Body).Decode(&out)
+			return out
+		}
+		email := s.email("native-api")
+		started := post("/login/native/start", map[string]string{"auth_request": loc.Query().Get("authRequest"), "email": email})
+		if started.Step != "code" {
+			t.Fatalf("start: %+v", started)
+		}
+		done := post("/login/native/code", map[string]string{"flow": started.Flow, "code": s.code(email)})
+		if done.Step != "done" {
+			t.Fatalf("code: %+v", done)
+		}
+		cb, err := url.Parse(done.Callback)
+		if err != nil || cb.Query().Get("code") == "" {
+			t.Fatalf("callback %q", done.Callback)
+		}
+		tok, status := tokenRequest(url.Values{"grant_type": {"authorization_code"}, "code": {cb.Query().Get("code")},
+			"redirect_uri": {nativeCB}, "code_verifier": {ver}}, s.native, "")
+		if status != 200 || tok.AccessToken == "" {
+			t.Fatalf("token: %d %s", status, tok.Error)
+		}
 	})
 
 	t.Run("logout via end_session ends the browser sessions, RP gets back-channel logout", func(t *testing.T) {

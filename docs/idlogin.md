@@ -112,6 +112,46 @@ binary and applied at start.
 
 ![App consent screen](consent.png)
 
+## Native JSON API
+
+A first-party native app can show its own email and code screens instead of
+opening a browser. It is off unless the brand lists the app's client ID in
+`native_api_clients`, and the app must be registered as native in Zitadel.
+
+1. The app starts OIDC authorization with PKCE, without following the redirect,
+   and reads `authRequest` from the `Location` header.
+2. It calls the routes below.
+3. `step: "done"` returns the callback URL. The app redeems its code at the token
+   endpoint with its PKCE verifier.
+
+| Route | Body | Success |
+|---|---|---|
+| `POST /login/native/start` | `{auth_request, email}` | `{step: "code", flow}` |
+| `POST /login/native/resend` | `{flow}` | `{step: "code", flow}` |
+| `POST /login/native/code` | `{flow, code}` | `{step: "done", callback}`, `{step: "totp", flow}` or `{step: "code", flow}` |
+| `POST /login/native/totp` | `{flow, code}` | `{step: "done", callback}` |
+
+Failures are `{error}` with `invalid_email`, `rate_limited` (429, `Retry-After`),
+`wrong_code`, `code_locked`, `code_expired`, `unavailable`, `expired`,
+`client_not_allowed`, `send_failed` or `temporary`. Apps translate these codes;
+the server sends no display text. Keep each response's `flow` and discard the old one.
+
+Differences from the pages:
+
+- Every account gets an email code, including accounts with a password. An email
+  code already proves as much as a password reset. TOTP is still required.
+- A consent prompt adds no step, since the allowlist names first-party apps that
+  show their own agreement.
+- No cookies and no browser session. Requests with `Origin`, `Referer` or
+  `Sec-Fetch-Site`, or without a JSON content type, get 403.
+- Code storage, attempt counters and rate limits are the same.
+
+**Review logins.** App store reviewers cannot read a mailbox.
+`native_review_logins_file` names a JSON file, `[{"email": ..., "code": "123456"}]`.
+That address then gets the fixed code through this API, with no mail sent, under the
+same attempt limits. The pages still mail a random code. Keep the file out of version
+control, give the account no special access, and change the code after each review.
+
 ## Security model
 
 - Flow state lives in an AEAD-sealed, HttpOnly, SameSite=Lax cookie, with the
