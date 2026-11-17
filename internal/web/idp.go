@@ -126,7 +126,8 @@ func (s *Server) handleIDPCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		switch {
 		case len(users) == 1 && it.Verified:
-			if !users[0].Usable() {
+			if !users[0].Usable() || s.isReviewUser(&users[0]) {
+				// The review organization signs in by checked code only.
 				s.unavailable(w, r, f)
 				return
 			}
@@ -164,7 +165,7 @@ func (s *Server) handleIDPCallback(w http.ResponseWriter, r *http.Request) {
 			s.unavailable(w, r, f)
 			return
 		}
-	} else if u, err := s.api.GetUser(ctx, in, uid); err != nil || !u.Usable() {
+	} else if u, err := s.api.GetUser(ctx, in, uid); err != nil || !u.Usable() || s.isReviewUser(u) {
 		if err != nil && !zitadel.IsRejected(err) {
 			s.failure(w, r, err, "get user")
 			return

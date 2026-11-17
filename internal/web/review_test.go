@@ -9,8 +9,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/velixio/idlogin/internal/config"
 	"github.com/velixio/idlogin/internal/review"
 	"github.com/velixio/idlogin/internal/store"
+	"github.com/velixio/idlogin/internal/zitadel"
 )
 
 const reviewOrg = "org-review"
@@ -248,5 +250,92 @@ func TestNativeCustomerUnchanged(t *testing.T) {
 	wantStep(t, e.nativeCode(r.Flow, e.mail.lastCode(t, "customer@example.com")), "done")
 	if len(fc.callList()) != 0 {
 		t.Fatal("checker called for a customer")
+	}
+}
+
+var resetForm = url.Values{"password": {"New-Pass-1"}, "password_confirm": {"New-Pass-1"}}
+
+func resetCodeForm(code string) url.Values {
+	v := url.Values{"code": {code}}
+	for k, x := range resetForm {
+		v[k] = x
+	}
+	return v
+}
+
+func TestResetForReviewAddressSendsNothingAndDoesNotSignIn(t *testing.T) {
+	e, fc, _ := hookEnv(t, true)
+	b := e.browser()
+	ar := e.z.newAuthRequest("web", nil, nil, "")
+	b.start(ar)
+	p := b.get("/reset?authRequest=" + ar)
+	p = b.post(p, "/reset", url.Values{"email": {"reviewer@example.com"}})
+	if e.mail.count() != 0 {
+		t.Fatalf("mails sent: %d", e.mail.count())
+	}
+	p = b.post(p, "/reset/code", resetCodeForm("123456"))
+	if p.status == http.StatusSeeOther || p.status >= 500 || e.z.sessionCount() != 0 {
+		t.Fatalf("signed in or failed: %d %q", p.status, p.location)
+	}
+	if len(fc.callList()) != 0 {
+		t.Fatal("checker called")
+	}
+}
+
+func TestResetAfterReviewEmailStepNeverCallsChecker(t *testing.T) {
+	for _, target := range []string{"reviewer@example.com", "customer@example.com"} {
+		e, fc, _ := hookEnv(t, true)
+		b := e.browser()
+		p, ar := reviewCodePage(t, e, b, "reviewer@example.com")
+		p = b.get("/reset?authRequest=" + ar)
+		p = b.post(p, "/reset", url.Values{"email": {target}})
+		p = b.post(p, "/reset/code", resetCodeForm("123456"))
+		if p.status >= 500 || p.status == http.StatusSeeOther {
+			t.Fatalf("%s: status %d %q", target, p.status, p.location)
+		}
+		if len(fc.callList()) != 0 {
+			t.Fatalf("%s: checker called", target)
+		}
+		if target == "customer@example.com" {
+			// The customer's emailed code still works.
+			p = b.post(p, "/reset/code", resetCodeForm(e.mail.lastCode(t, target)))
+			mustCallback(t, p, ar)
+		}
+	}
+}
+
+func TestCustomerResetStillWorksWithReviewHook(t *testing.T) {
+	e, fc, _ := hookEnv(t, true)
+	b := e.browser()
+	ar := e.z.newAuthRequest("web", nil, nil, "")
+	b.start(ar)
+	p := b.post(b.get("/reset?authRequest="+ar), "/reset", url.Values{"email": {"customer@example.com"}})
+	p = b.post(p, "/reset/code", resetCodeForm(e.mail.lastCode(t, "customer@example.com")))
+	mustCallback(t, p, ar)
+	if len(fc.callList()) != 0 {
+		t.Fatal("checker called")
+	}
+}
+
+func TestIDPReviewUserRefused(t *testing.T) {
+	for _, linked := range []bool{false, true} {
+		e := newEnv(t, brandCfg{IDPs: []config.IDP{{Key: "google", ID: "idp-google"}}})
+		fc := newFakeChecker(t)
+		e.web.review, e.web.reviewOrg = review.New(fc.srv.URL, make([]byte, 32), nil), reviewOrg
+		u := e.z.addUser("reviewer@example.com", "", true)
+		u.Details.ResourceOwner = reviewOrg
+		b := e.browser()
+		ar := e.z.newAuthRequest("web", nil, nil, "")
+		p := b.post(b.start(ar), "/login/idp", url.Values{"provider": {"google"}})
+		loc, _ := url.Parse(p.location)
+		in := zitadel.Intent{IDPID: "idp-google", ExtID: "g-r", Email: "reviewer@example.com", Verified: true}
+		if linked {
+			in.UserID = u.UserID
+		}
+		id, tok := e.z.finishIntent(in)
+		p = b.get(loc.Query().Get("success") + "&id=" + url.QueryEscape(id) + "&token=" + url.QueryEscape(tok))
+		if p.status == http.StatusSeeOther || e.z.sessionCount() != 0 || e.z.links["idp-google|g-r"] != "" {
+			t.Fatalf("linked=%v: signed in or linked: %d %q", linked, p.status, p.location)
+		}
 	}
 }

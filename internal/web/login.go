@@ -536,6 +536,9 @@ func (s *Server) checkCode(r *http.Request, f *flow, code, app string) (string, 
 		return msgTooManyAttempts, nil, err
 	}
 	if f.Review {
+		if f.CodeKind != kindSignin {
+			return msgCodeWrong, nil, nil
+		}
 		return s.checkReviewCode(r, f, code, app), nil, nil
 	}
 	want := s.hashCode(f.CodeID, code)

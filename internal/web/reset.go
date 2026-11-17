@@ -35,6 +35,7 @@ func (s *Server) handleResetPage(w http.ResponseWriter, r *http.Request) {
 			// Nothing proven for an earlier account carries over into a reset.
 			f.CodeID, f.CodeKind, f.EmailProven, f.ResetOK = "", "", false, false
 			f.UserID, f.SessionID, f.SessionTok, f.TOTPFor = "", "", "", ""
+			f.Review = false
 			s.saveFlow(w, b, f)
 		}
 		s.render(w, r, http.StatusOK, "reset", s.resetView(f))
@@ -84,6 +85,7 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Email = email
+	f.Review = false
 	if ok, err := s.store.Allow(ctx, s.limit(s.limits.LookupsPerIP, "lookup:ip:"+s.clientIP(r))); err != nil || !ok {
 		v := s.resetView(f)
 		v.Error = "Too many attempts. Try again in a few minutes."
@@ -109,7 +111,8 @@ func (s *Server) sendResetCode(r *http.Request, f *flow) error {
 	if err != nil {
 		return err
 	}
-	if len(users) == 1 && users[0].Usable() {
+	// A review-organization user signs in only by checked code: no reset mail.
+	if len(users) == 1 && users[0].Usable() && !s.isReviewUser(&users[0]) {
 		f.UserID = users[0].UserID
 		return s.sendCode(r, f, kindReset, f.UserID, true)
 	}
@@ -185,6 +188,7 @@ func (s *Server) handleResetCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	f.Review = false // a reset code is never checked externally
 	if !f.ResetOK {
 		msg, c, err := s.checkCode(r, f, r.PostFormValue("code"), "web")
 		if err != nil {
