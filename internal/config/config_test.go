@@ -163,3 +163,74 @@ func TestReviewLoginsValidated(t *testing.T) {
 		}
 	}
 }
+
+func reviewEnv(t *testing.T, extra map[string]string) func(string) string {
+	t.Helper()
+	env := map[string]string{
+		"LOGIN_COOKIE_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "LOGIN_DATABASE_URL": "postgres://x",
+		"LOGIN_BRANDS_FILE": "/b.json", "LOGIN_MAIL_DIR": "/tmp/m",
+	}
+	for k, v := range extra {
+		env[k] = v
+	}
+	return func(k string) string { return env[k] }
+}
+
+func writeKey(t *testing.T, n int) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(p, make([]byte, n), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestReviewConfigAllOrNone(t *testing.T) {
+	key := writeKey(t, 48)
+	all := map[string]string{"LOGIN_REVIEW_ORG_ID": "org1", "LOGIN_REVIEW_CHECK_URL": "https://api.example/x", "LOGIN_REVIEW_CHECK_KEY_FILE": key}
+	c, err := FromEnv(reviewEnv(t, all))
+	if err != nil || c.ReviewOrgID != "org1" || len(c.ReviewCheckKey) != 48 {
+		t.Fatalf("all three: %v %+v", err, c)
+	}
+	c, err = FromEnv(reviewEnv(t, nil))
+	if err != nil || c.ReviewOrgID != "" || c.ReviewCheckKey != nil {
+		t.Fatalf("none: %v", err)
+	}
+	for k := range all {
+		one := map[string]string{k: all[k]}
+		if _, err := FromEnv(reviewEnv(t, one)); err == nil {
+			t.Fatalf("only %s accepted", k)
+		}
+		two := map[string]string{}
+		for j, v := range all {
+			if j != k {
+				two[j] = v
+			}
+		}
+		if _, err := FromEnv(reviewEnv(t, two)); err == nil {
+			t.Fatalf("without %s accepted", k)
+		}
+	}
+}
+
+func TestReviewCheckURLScheme(t *testing.T) {
+	key := writeKey(t, 48)
+	for u, ok := range map[string]bool{
+		"http://10.0.0.5/x": false, "http://127.0.0.1:8080/x": true, "https://api.example/x": true,
+		"http://localhost:8080/x": true, "ftp://127.0.0.1/x": false, "https:///x": false,
+	} {
+		_, err := FromEnv(reviewEnv(t, map[string]string{"LOGIN_REVIEW_ORG_ID": "o", "LOGIN_REVIEW_CHECK_URL": u, "LOGIN_REVIEW_CHECK_KEY_FILE": key}))
+		if (err == nil) != ok {
+			t.Fatalf("%s: ok=%v err=%v", u, ok, err)
+		}
+	}
+}
+
+func TestReviewKeyFileValidated(t *testing.T) {
+	for name, path := range map[string]string{"short": writeKey(t, 31), "missing": "/nonexistent/key"} {
+		_, err := FromEnv(reviewEnv(t, map[string]string{"LOGIN_REVIEW_ORG_ID": "o", "LOGIN_REVIEW_CHECK_URL": "https://api.example/x", "LOGIN_REVIEW_CHECK_KEY_FILE": path}))
+		if err == nil {
+			t.Fatalf("%s key accepted", name)
+		}
+	}
+}
