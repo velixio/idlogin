@@ -186,7 +186,7 @@ func (s *Server) handleResetCode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !f.ResetOK {
-		msg, c, err := s.checkCode(r, f, r.PostFormValue("code"))
+		msg, c, err := s.checkCode(r, f, r.PostFormValue("code"), "web")
 		if err != nil {
 			s.failure(w, r, err, "check code")
 			return

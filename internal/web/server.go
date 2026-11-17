@@ -24,6 +24,7 @@ import (
 
 	"github.com/velixio/idlogin/internal/config"
 	"github.com/velixio/idlogin/internal/mailer"
+	"github.com/velixio/idlogin/internal/review"
 	"github.com/velixio/idlogin/internal/seal"
 	"github.com/velixio/idlogin/internal/store"
 	"github.com/velixio/idlogin/internal/zitadel"
@@ -86,6 +87,11 @@ type Options struct {
 	Logger     *slog.Logger
 	Now        func() time.Time
 	Limits     *Limits
+	// Review and ReviewOrg turn on code-only sign-in for the users of one
+	// Zitadel organization, whose typed code is checked by Review instead of
+	// being mailed. Both must be set; with either missing the hook is off.
+	Review    *review.Checker
+	ReviewOrg string
 }
 
 // Server is the HTTP handler.
@@ -102,6 +108,8 @@ type Server struct {
 	limits     Limits
 	pages      map[string]*template.Template
 	mux        *http.ServeMux
+	review     *review.Checker // nil: no review organization
+	reviewOrg  string
 
 	jwksMu sync.Mutex
 	jwks   map[string]jwksEntry
@@ -129,6 +137,9 @@ func New(o Options) (*Server, error) {
 	}
 	if o.Limits != nil {
 		s.limits = *o.Limits
+	}
+	if o.Review != nil && o.ReviewOrg != "" {
+		s.review, s.reviewOrg = o.Review, o.ReviewOrg
 	}
 	if s.pages, err = parseTemplates(); err != nil {
 		return nil, err
