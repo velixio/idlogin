@@ -23,6 +23,7 @@ import (
 	"github.com/velixio/idlogin/internal/actions"
 	"github.com/velixio/idlogin/internal/config"
 	"github.com/velixio/idlogin/internal/mailer"
+	"github.com/velixio/idlogin/internal/review"
 	"github.com/velixio/idlogin/internal/setup"
 	"github.com/velixio/idlogin/internal/store"
 	"github.com/velixio/idlogin/internal/web"
@@ -128,9 +129,14 @@ func serve() error {
 		m = &mailer.Log{Dir: cfg.MailDir}
 	}
 
+	var checker *review.Checker
+	if cfg.ReviewOrgID != "" {
+		checker = review.New(cfg.ReviewCheckURL, cfg.ReviewCheckKey, nil)
+	}
 	srv, err := web.New(web.Options{
 		Brands: current.Load, API: zitadel.New(cfg.ZitadelURL), Store: st, Mailer: m,
 		CookieKey: cfg.CookieKey, TrustProxy: cfg.TrustProxy, Logger: log,
+		Review: checker, ReviewOrg: cfg.ReviewOrgID,
 	})
 	if err != nil {
 		return err

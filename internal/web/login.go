@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/velixio/idlogin/internal/config"
+	"github.com/velixio/idlogin/internal/review"
 	"github.com/velixio/idlogin/internal/store"
 	"github.com/velixio/idlogin/internal/zitadel"
 )
@@ -279,6 +280,13 @@ func (s *Server) handleEmail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.UserID = u.UserID
+		if s.isReviewUser(&u) {
+			// Code-only, even if the account has a password; nothing is mailed.
+			f.Review, f.CodeKind, f.Step = true, kindSignin, stepCode
+			s.saveFlow(w, b, f)
+			s.toStep(w, r, f)
+			return
+		}
 		methods, err := s.api.AuthMethods(ctx, instance(b), u.UserID)
 		if err != nil {
 			s.failure(w, r, err, "auth methods")
@@ -318,6 +326,8 @@ const (
 	msgCodeLocked      = "Too many wrong attempts for this code. Send a new code."
 	msgCodeExpired     = "That code has expired. Send a new code."
 	msgCodeGone        = "That code is no longer valid. Send a new code."
+
+	msgCheckUnavailable = "We could not check the code. Try again in a moment."
 )
 
 func newCode() string {
@@ -515,7 +525,7 @@ func validCodeFormat(c string) bool {
 
 // checkCode spends one attempt on the flow's code. It returns the message to
 // show, or "" when the code was right.
-func (s *Server) checkCode(r *http.Request, f *flow, code string) (string, *store.Code, error) {
+func (s *Server) checkCode(r *http.Request, f *flow, code, app string) (string, *store.Code, error) {
 	b := brandOf(r)
 	ctx := r.Context()
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
@@ -524,6 +534,12 @@ func (s *Server) checkCode(r *http.Request, f *flow, code string) (string, *stor
 	}
 	if ok, err := s.store.Allow(ctx, s.limit(s.limits.CodeChecksPerIP, "code:ip:"+s.clientIP(r))); err != nil || !ok {
 		return msgTooManyAttempts, nil, err
+	}
+	if f.Review {
+		if f.CodeKind != kindSignin {
+			return msgCodeWrong, nil, nil
+		}
+		return s.checkReviewCode(r, f, code, app), nil, nil
 	}
 	want := s.hashCode(f.CodeID, code)
 	res, c, err := s.store.CheckCode(ctx, f.CodeID, func(stored []byte) bool { return ctEqual(string(stored), string(want)) }, CodeMaxAttempts)
@@ -546,6 +562,29 @@ func (s *Server) checkCode(r *http.Request, f *flow, code string) (string, *stor
 	return msgCodeGone, nil, nil
 }
 
+// isReviewUser reports whether u belongs to the configured review organization.
+func (s *Server) isReviewUser(u *zitadel.User) bool {
+	return s.review != nil && s.reviewOrg != "" && u.Details.ResourceOwner == s.reviewOrg
+}
+
+// checkReviewCode asks the external checker whether code (already format
+// checked and rate limited) is right for the flow's user. It returns "" for a
+// right code. Anything but a clear answer fails closed; the code is never logged.
+func (s *Server) checkReviewCode(r *http.Request, f *flow, code, app string) string {
+	if s.review == nil || f.UserID == "" {
+		return msgCheckUnavailable
+	}
+	res, err := s.review.Check(r.Context(), f.UserID, code, app)
+	if err != nil {
+		s.log.Error("review code check", "error", err)
+		return msgCheckUnavailable
+	}
+	if res == review.ResultOK {
+		return ""
+	}
+	return msgCodeWrong // wrong, locked and disabled look the same
+}
+
 func (s *Server) handleCode(w http.ResponseWriter, r *http.Request) {
 	f, ok := s.formFlow(w, r)
 	if !ok {
@@ -558,6 +597,13 @@ func (s *Server) handleCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.PostFormValue("action") == "resend" {
+		if f.Review {
+			// Nothing to send: the reviewer's code is fixed.
+			v := s.codeView(f)
+			v.Info = "A new code is on its way."
+			s.render(w, r, http.StatusOK, "code", v)
+			return
+		}
 		if err := s.sendCode(r, f, f.CodeKind, f.UserID, true); err != nil {
 			s.sendError(w, r, f, err, "code")
 			return
@@ -568,7 +614,7 @@ func (s *Server) handleCode(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, http.StatusOK, "code", v)
 		return
 	}
-	msg, _, err := s.checkCode(r, f, r.PostFormValue("code"))
+	msg, _, err := s.checkCode(r, f, r.PostFormValue("code"), "web")
 	if err != nil {
 		s.failure(w, r, err, "check code")
 		return

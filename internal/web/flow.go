@@ -50,6 +50,7 @@ type flow struct {
 	UserID      string `json:"uid,omitempty"`
 	CodeID      string `json:"cid,omitempty"`
 	CodeKind    string `json:"ck,omitempty"`
+	Review      bool   `json:"rv,omitempty"` // review organization user: the code is checked externally, nothing is mailed
 	EmailProven bool   `json:"ep,omitempty"` // this flow proved ownership of Email
 	ResetOK     bool   `json:"ro,omitempty"` // reset code verified; only the new password is missing
 	// TOTPFor records the user and Zitadel session a TOTP check (or the

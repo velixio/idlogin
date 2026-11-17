@@ -202,6 +202,12 @@ func (s *Server) handleNativeStart(w http.ResponseWriter, r *http.Request) {
 	case len(users) == 0 && b.RegistrationEnabled:
 	case len(users) == 1 && users[0].Usable():
 		kind, f.UserID = kindSignin, users[0].UserID
+		if s.isReviewUser(&users[0]) {
+			// Code-only; nothing is mailed and the checker verifies the code.
+			f.Review, f.CodeKind = true, kindSignin
+			s.nativeStep(w, r, f, stepCode)
+			return
+		}
 	default:
 		// Same answer for a closed registration, a disabled account and an
 		// address shared by several accounts.
@@ -227,6 +233,10 @@ func (s *Server) handleNativeResend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if f.Review {
+		s.nativeStep(w, r, f, stepCode) // nothing to send
+		return
+	}
 	if err := s.sendNativeCode(r, f, f.CodeKind); err != nil {
 		s.nativeSendFailure(w, err)
 		return
@@ -247,7 +257,7 @@ func (s *Server) handleNativeCode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	msg, _, err := s.checkCode(r, f, in.Code)
+	msg, _, err := s.checkCode(r, f, in.Code, "native")
 	if err != nil {
 		s.log.Error("native check code", "error", err)
 		nativeFail(w, nativeTemporary)
@@ -260,6 +270,9 @@ func (s *Server) handleNativeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	case msgCodeLocked:
 		nativeFail(w, nativeCodeLocked)
+		return
+	case msgCheckUnavailable:
+		nativeFail(w, nativeTemporary)
 		return
 	case msgCodeExpired:
 		nativeFail(w, nativeCodeExpired)

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -35,7 +36,17 @@ type Config struct {
 	SMTPTLS          string // LOGIN_SMTP_TLS: starttls (default) | tls | none
 	TrustProxy       bool   // LOGIN_TRUST_PROXY: take the client IP from X-Forwarded-For
 	LogLevel         string // LOGIN_LOG_LEVEL: debug | info (default)
+
+	// Store review accounts: users of this Zitadel org sign in with a fixed
+	// code that the vssaas API checks. All three settings or none.
+	ReviewOrgID        string // LOGIN_REVIEW_ORG_ID
+	ReviewCheckURL     string // LOGIN_REVIEW_CHECK_URL (https, or http to a loopback host)
+	ReviewCheckKeyFile string // LOGIN_REVIEW_CHECK_KEY_FILE (raw key bytes, at least 32)
+	ReviewCheckKey     []byte // contents of ReviewCheckKeyFile, read at startup
 }
+
+// minReviewKeyBytes is the shortest accepted review check key.
+const minReviewKeyBytes = 32
 
 // FromEnv reads the process configuration.
 func FromEnv(getenv func(string) string) (*Config, error) {
@@ -61,6 +72,10 @@ func FromEnv(getenv func(string) string) (*Config, error) {
 		SMTPTLS:          get("LOGIN_SMTP_TLS", "starttls"),
 		TrustProxy:       get("LOGIN_TRUST_PROXY", "false") == "true",
 		LogLevel:         get("LOGIN_LOG_LEVEL", "info"),
+
+		ReviewOrgID:        get("LOGIN_REVIEW_ORG_ID", ""),
+		ReviewCheckURL:     get("LOGIN_REVIEW_CHECK_URL", ""),
+		ReviewCheckKeyFile: get("LOGIN_REVIEW_CHECK_KEY_FILE", ""),
 	}
 	var errs []error
 	key, err := base64.StdEncoding.DecodeString(get("LOGIN_COOKIE_KEY", ""))
@@ -92,7 +107,53 @@ func FromEnv(getenv func(string) string) (*Config, error) {
 	if get("LOGIN_ACTIONS_ADDR", "") != "" {
 		errs = append(errs, errors.New("LOGIN_ACTIONS_ADDR is no longer used: the action target is served on LOGIN_ADDR at /login/zitadel/preaccesstoken; set LOGIN_ACTIONS_SIGNING_KEY_FILE to enable it"))
 	}
+	errs = append(errs, c.loadReview()...)
 	return c, errors.Join(errs...)
+}
+
+// loadReview validates the review check settings and reads the key file.
+// Error text never includes the key.
+func (c *Config) loadReview() []error {
+	set := 0
+	for _, v := range []string{c.ReviewOrgID, c.ReviewCheckURL, c.ReviewCheckKeyFile} {
+		if v != "" {
+			set++
+		}
+	}
+	if set == 0 {
+		return nil
+	}
+	if set != 3 {
+		return []error{errors.New("LOGIN_REVIEW_ORG_ID, LOGIN_REVIEW_CHECK_URL and LOGIN_REVIEW_CHECK_KEY_FILE must be set together or not at all")}
+	}
+	var errs []error
+	u, err := url.Parse(c.ReviewCheckURL)
+	switch {
+	case err != nil || u.Host == "" || u.User != nil:
+		errs = append(errs, errors.New("LOGIN_REVIEW_CHECK_URL must be an absolute http(s) URL"))
+	case u.Scheme == "https":
+	case u.Scheme == "http" && isLoopbackHost(u.Hostname()):
+	default:
+		errs = append(errs, errors.New("LOGIN_REVIEW_CHECK_URL must be https, or http only to a loopback host"))
+	}
+	key, err := os.ReadFile(c.ReviewCheckKeyFile)
+	switch {
+	case err != nil:
+		errs = append(errs, errors.New("LOGIN_REVIEW_CHECK_KEY_FILE cannot be read"))
+	case len(key) < minReviewKeyBytes:
+		errs = append(errs, fmt.Errorf("LOGIN_REVIEW_CHECK_KEY_FILE must hold at least %d bytes (openssl rand -out FILE 48)", minReviewKeyBytes))
+	default:
+		c.ReviewCheckKey = key
+	}
+	return errs
+}
+
+func isLoopbackHost(h string) bool {
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 // IDP is a social login button backed by a Zitadel IdP.

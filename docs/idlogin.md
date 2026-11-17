@@ -152,6 +152,17 @@ That address then gets the fixed code through this API, with no mail sent, under
 same attempt limits. The pages still mail a random code. Keep the file out of version
 control, give the account no special access, and change the code after each review.
 
+**Review organization.** With `LOGIN_REVIEW_ORG_ID`, `LOGIN_REVIEW_CHECK_URL` and
+`LOGIN_REVIEW_CHECK_KEY_FILE` all set (set one and startup fails), a user whose
+Zitadel resource owner is that organization signs in by code only, on the pages and
+on the JSON API. No email is sent and no code is stored here; the typed code (spaces
+ignored, per-IP check limit applied) goes to the check URL, signed with the shared key
+(2-second timeout, no retry, no redirects). `ok` signs in exactly like a correct email
+code; `wrong`, `locked` and `disabled` show the usual wrong-code message; an error or
+timeout shows "We could not check the code. Try again in a moment." (API: `temporary`).
+A password on such an account is ignored. Resend sends nothing. Other users and the
+case where the settings are absent are unchanged.
+
 ## Security model
 
 - Flow state lives in an AEAD-sealed, HttpOnly, SameSite=Lax cookie, with the
@@ -299,6 +310,9 @@ Environment (`deploy/env/local.env.example`,
 | `LOGIN_MAIL_DIR` | | Dev mail directory |
 | `LOGIN_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_TLS` | port 587, `starttls` | SMTP; `_TLS` is `starttls`, `tls` (465) or `none` |
 | `LOGIN_TRUST_PROXY` | `false` | Take the client IP (rate limits) from the last `X-Forwarded-For` hop |
+| `LOGIN_REVIEW_ORG_ID` | | Zitadel organization whose users sign in with an externally checked code (all three review settings or none) |
+| `LOGIN_REVIEW_CHECK_URL` | | Check endpoint; https, or http to a loopback host |
+| `LOGIN_REVIEW_CHECK_KEY_FILE` | | Shared HMAC key, raw bytes, at least 32 |
 | `LOGIN_ACTIONS_SIGNING_KEY_FILE` | | Target signing key (written by `idlogin setup`, re-read per call) |
 | `LOGIN_LOG_LEVEL` | `info` | `debug` for more |
 
